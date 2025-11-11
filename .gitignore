@@ -1,0 +1,5 @@
+.cache/*
+tests/*.o
+test
+test.exe
+compile_commands.json
