@@ -9,6 +9,7 @@ cstr2cstr_dump(const hh_map_t* map) {
         printf("%zu: ", i);
         for(size_t j = 0; j < hh_darrlen(map->buckets[i]);) {
             entry.size_key = *((size_t*) (map->buckets[i] + j)); j += sizeof(size_t);
+            if(entry.size_key == 0) break;
             entry.size_val = *((size_t*) (map->buckets[i] + j)); j += sizeof(size_t);
             entry.key = map->buckets[i] + j; j += entry.size_key;
             entry.val = map->buckets[i] + j; j += entry.size_val;
@@ -21,11 +22,6 @@ cstr2cstr_dump(const hh_map_t* map) {
 //
 //
 //
-
-void
-op_map_printer(hh_map_entry_t entry) {
-    printf("(%.*s, %zu), ", (int) entry.size_key, (char*) entry.key, entry.size_key);
-}
 
 #define BUFFER_SIZE 512
 
@@ -43,11 +39,13 @@ op_insert(hh_map_t* map, hh_span_t* token) {
         HH_ERR("Failed to parse token.");
         return false;
     }
+    printf("key: len = %zu, token = \"%.*s\"\n", token->len, (int) token->len, token->ptr);
     hh_span_t val = *token;
     if(!hh_span_next(&val)) {
         HH_ERR("Failed to parse token.");
         return false;
     }
+    printf("val: len = %zu, token = \"%.*s\"\n", val.len, (int) val.len, val.ptr);
     if(!hh_map_insert(map, token->ptr, token->len, val.ptr, val.len)) {
         HH_ERR("Failed to insert element: (%.*s, %.*s)", (int) token->len, token->ptr, (int) val.len, val.ptr);
         return false;

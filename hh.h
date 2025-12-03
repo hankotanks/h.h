@@ -656,6 +656,7 @@ hh_span_init(hh_span_t* span, const char* ptr, const char* delim) {
 	span->delim = delim;
 	span->len = 0;
 	span->skips = 0;
+	while(span->ptr && strchr(" \t\r", span->ptr[0])) span->ptr++;
 	return hh_span_next(span);
 }
 
@@ -665,20 +666,29 @@ hh_span_next(hh_span_t* span) {
 	const char* ptr = span->ptr + span->len + span->skips;
 	span->len = 0;
 	span->skips = 0;
-	while(*ptr && strchr(" \t\r", *ptr)) ++ptr;
 	span->ptr = ptr;
 	if(!*ptr) return false;
 	size_t delim_len = span->delim ? strlen(span->delim) : 0;
 	if(span->delim) {
 		while(*ptr && strncmp(ptr, span->delim, delim_len) != 0 && !strchr(" \t\r\n", *ptr)) ++ptr;
 	} else while(*ptr && !strchr(" \t\r\n", *ptr)) ++ptr;
+	// ptr now is at the end of the token, pointing to either whitespace or the start of the delimiter
 	span->len = (size_t) (ptr - span->ptr);
-	if(span->len == 0) return false;
-	if(span->delim) {
-		while(*ptr && strchr(" \t\r", *ptr)) ++ptr;
-		if(strncmp(ptr, span->delim, delim_len) == 0) ptr += delim_len;
-	}
+	if(span->len == 0 && span->delim == NULL) return false;
 	while(*ptr && strchr(" \t\r", *ptr)) ++ptr;
+	if(*ptr == '\0') goto hh_span_next_skips;
+	// either at the delim or a newline
+	if(*ptr == '\n') {
+		++ptr;
+		goto hh_span_next_skips;
+	}
+	// we are 100% pointing at a delim if there is one
+	if(span->delim) {
+		if(strncmp(ptr, span->delim, delim_len) != 0) return false;
+		ptr += delim_len;
+		while(*ptr && strchr(" \t\r\n", *ptr)) ++ptr;
+	}
+hh_span_next_skips:
 	span->skips = (size_t) (ptr - span->ptr) - span->len;
 	return true;
 }
@@ -890,7 +900,7 @@ HH_H__impl_map_replace(hh_map_t* map, const void* key, size_t size_key, const vo
 	len = (size_t) ((map->buckets[idx] + hh_darrlen(map->buckets[idx])) - entry_end);
     memmove(entry_val + size_val, entry_end, len);
 	// update metadata and replace value
-    ((size_t*) entry_begin)[0] = size_val;
+    ((size_t*) entry_begin)[1] = size_val;
     memcpy(entry_val, val, size_val);
     return true;
 }
