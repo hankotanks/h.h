@@ -1,6 +1,8 @@
 #define HH_IMPLEMENTATION
 #include "hh.h"
 
+#include <stdbool.h>
+
 typedef bool (*op_f)(hh_map_t* map, hh_span_t* token);
 
 // parsing functions for commands

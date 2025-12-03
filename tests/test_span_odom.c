@@ -2,6 +2,8 @@
 #define HH_STRIP_PREFIXES
 #include "hh.h"
 
+#include <stdbool.h>
+
 struct pose {
     double timestamp;
     size_t frame;

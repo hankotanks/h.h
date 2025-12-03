@@ -6,11 +6,9 @@
 #define _POSIX_C_SOURCE 200809L
 #endif // not _WIN32
 
-#include <stddef.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <stdint.h>
 #include <stdio.h>
+#include <stddef.h>
+#include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
 #include <assert.h>
@@ -29,42 +27,42 @@
 // HH_ERR logs to stderr instead of stdout
 #ifdef HH_LOG
 #if HH_LOG >= HH_LOG_DBG
-#define HH_DBG_BLOCK if(printf("DEBUG [%s:%d]: ", __FILE__, __LINE__), true)
+#define HH_DBG_BLOCK if(printf("DEBUG [%s:%d]: ", __FILE__, __LINE__), 1)
 #define HH_DBG(...) do { \
 	printf("DEBUG [%s:%d]: ", __FILE__, __LINE__); \
 	printf(__VA_ARGS__); \
 	printf("\n"); \
 } while(0)
 #else
-#define HH_DBG_BLOCK if(false)
+#define HH_DBG_BLOCK if(0)
 #define HH_DBG(...)
 #endif // HH_DBG
 #if HH_LOG >= HH_LOG_MSG
-#define HH_MSG_BLOCK if(printf("INFO [%s:%d]: ", __FILE__, __LINE__), true)
+#define HH_MSG_BLOCK if(printf("INFO [%s:%d]: ", __FILE__, __LINE__), 1)
 #define HH_MSG(...) do { \
     printf("INFO [%s:%d]: ", __FILE__, __LINE__); \
 	printf(__VA_ARGS__); \
 	printf("\n"); \
 } while(0)
 #else
-#define HH_MSG_BLOCK if(false)
+#define HH_MSG_BLOCK if(0)
 #define HH_MSG(...)
 #endif // HH_MSG
 #if HH_LOG >= HH_LOG_ERR
-#define HH_ERR_BLOCK if(fprintf(stderr, "ERROR [%s:%d]: ", __FILE__, __LINE__), true)
+#define HH_ERR_BLOCK if(fprintf(stderr, "ERROR [%s:%d]: ", __FILE__, __LINE__), 1)
 #define HH_ERR(...) do { \
 	fprintf(stderr, "ERROR [%s:%d]: ", __FILE__, __LINE__); \
 	fprintf(stderr, __VA_ARGS__); \
 	fprintf(stderr, "\n"); \
 } while(0)
 #else
-#define HH_ERR_BLOCK if(false)
+#define HH_ERR_BLOCK if(0)
 #define HH_ERR(...)
 #endif // HH_LOG
 #else
-#define HH_DBG_BLOCK if(false)
-#define HH_MSG_BLOCK if(false)
-#define HH_ERR_BLOCK if(false)
+#define HH_DBG_BLOCK if(0)
+#define HH_MSG_BLOCK if(0)
+#define HH_ERR_BLOCK if(0)
 #define HH_DBG(...)
 #define HH_MSG(...)
 #define HH_ERR(...)
@@ -104,7 +102,7 @@
 #define HH_ASSERT_BEFORE(cond) for(; !(cond); assert(cond))
 // use this for unreachable branches
 // for example, default cases in switch blocks
-#define HH_UNREACHABLE HH_ASSERT_UNREACHABLE(false)
+#define HH_UNREACHABLE HH_ASSERT_UNREACHABLE(0)
 
 // wrappers that assert allocation success
 void*
@@ -164,17 +162,17 @@ hh_path_alloc(const char* raw);
 // hh_path_exists
 // [in const] path: a path originally constructed with hh_path_alloc
 // return: truthy if path exists, false otherwise
-bool
+_Bool
 hh_path_exists(const char* path);
 // hh_path_is_file
 // [in const] path: a path originally constructed with hh_path_alloc
 // return: truthy if path exists and points to a file, false otherwise
-bool
+_Bool
 hh_path_is_file(const char* path);
 // hh_path_is_root
 // [in const] path: a path originally constructed with hh_path_alloc
 // return: truthy if path is a root path (eg. "C:/" or "/"), false otherwise
-bool 
+_Bool 
 hh_path_is_root(const char* path);
 // hh_path_join
 // [in] path: a path originally constructed with hh_path_alloc
@@ -218,7 +216,7 @@ enum hh_edition {
 // hh_edition_supported
 // [in] ed: the standard you want to check
 // return: truthy if the standard is supported, false otherwise
-bool
+_Bool
 hh_edition_supported(enum hh_edition ed);
 
 // represents a non-owning view into a char buffer
@@ -231,27 +229,27 @@ typedef struct {
 
 // initialize a span and advance to the first token
 // NOTE: the delimiter can be changed at any point without causing issues
-bool
+_Bool
 hh_span_init(hh_span_t* span, const char* ptr, const char* delim);
 // advances the span to the start of the next token
 // returns truthy unless the end of the buffer has been reached 
 // and no more tokens remain
 // delim represents the expected dividers between tokens (excluding whitespace)
-bool
+_Bool
 hh_span_next(hh_span_t* span);
 // advance to the next line, skipping all remaining tokens
-bool
+_Bool
 hh_span_next_line(hh_span_t* span);
 // returns true if the span's current token equals `other`
-bool
+_Bool
 hh_span_equals(const hh_span_t span, const char* other);
 // parse a given type from the span
 // does not advance to the next token
-bool
+_Bool
 hh_span_parse(const hh_span_t* span, const char* fmt, void* out);
 // same as above, but advances the span ot the next token
 // so hh_span_parse_next can be called in succession
-bool
+_Bool
 hh_span_parse_next(hh_span_t* span, const char* fmt, void* out);
 
 // reads an entire file given by path
@@ -264,10 +262,10 @@ hh_read_entire_file(const char* path);
 const char*
 hh_skip_whitespace(const char* str);
 // returns truthy when the `str` starts with `prefix`
-bool
+_Bool
 hh_has_prefix(const char* str, const char* prefix);
 // returns truthy when the `str` ens with `suffix`
-bool
+_Bool
 hh_has_suffix(const char* str, const char* suffix);
 
 // templates for custom key hashing and comparator functions
@@ -305,7 +303,7 @@ typedef struct {
 } hh_map_entry_t;
 
 // insert a key-value pair into the hashmap
-bool
+_Bool
 hh_map_insert(hh_map_t* map, const void* key, size_t size_key, const void* val, size_t size_val);
 // macro for inserting string keys
 // NOTE: the key stored in the hashmap is null-terminated,
@@ -313,7 +311,7 @@ hh_map_insert(hh_map_t* map, const void* key, size_t size_key, const void* val, 
 #define hh_map_insert_with_cstr_key(map, key, val, size_val) hh_map_insert(map, key, strlen(key) + 1, val, size_val)
 // insert an hh_map_entry_t element
 // useful for copying from one hashmap to another
-bool
+_Bool
 hh_map_insert_entry(hh_map_t* map, const hh_map_entry_t* entry);
 // returns the key-value pair associated with a given key
 // if the key does not exist in the map, the entry is 0-initialized
@@ -329,7 +327,7 @@ const void*
 hh_map_get_val(const hh_map_t* map, const void* key, size_t size_key);
 // remove entry corresponding to the given key
 // returns truthy if an entry was removed
-bool
+_Bool
 hh_map_remove(hh_map_t* map, const void* key, size_t size_key);
 // iterator macro for hh_map
 // hh_map_it(&map, it) printf("%.*s", (int) it.size_key, it.key);
@@ -381,7 +379,7 @@ void
 HH_H__impl_darrgrow(void** arrp, size_t n, size_t elem_size);
 size_t
 HH_H__impl_darradd(void** arrp, size_t n, size_t elem_size);
-bool 
+_Bool 
 HH_H__impl_darrswap(void* arrp, size_t i, size_t j);
 
 // helper functions for hh_path
@@ -472,16 +470,16 @@ HH_H__impl_darradd(void** arrp, size_t n, size_t elem_size) {
     return len;
 }
 
-bool 
+_Bool 
 HH_H__impl_darrswap(void* arrp, size_t i, size_t j) {
-    if(i == j) return true;
-	if(arrp == NULL) return false;
+    if(i == j) return 1;
+	if(arrp == NULL) return 0;
     size_t elem_size = hh_darrheader(arrp)->elem_size;
     char tmp[elem_size];
     memcpy(tmp, ((char*) arrp) + i * elem_size, elem_size);
     memcpy(((char*) arrp) + i * elem_size, ((char*) arrp) + j * elem_size, elem_size);
     memcpy(((char*) arrp) + j * elem_size, tmp, elem_size);
-	return true;
+	return 1;
 }
 
 char* 
@@ -515,9 +513,9 @@ hh_path_alloc(const char *raw) {
     return path;
 }
 
-bool
+_Bool
 hh_path_exists(const char* path) {
-	if(path == NULL) return false;
+	if(path == NULL) return 0;
 #ifdef _WIN32
 	return _access(path, 0) == 0;
 #else
@@ -525,9 +523,9 @@ hh_path_exists(const char* path) {
 #endif
 }
 
-bool
+_Bool
 hh_path_is_file(const char* path) {
-	if(path == NULL) return false;
+	if(path == NULL) return 0;
 #ifdef _WIN32
     DWORD attr = GetFileAttributesA(path);
     return (attr != INVALID_FILE_ATTRIBUTES) && !(attr & FILE_ATTRIBUTE_DIRECTORY);
@@ -537,12 +535,12 @@ hh_path_is_file(const char* path) {
 #endif
 }
 
-bool 
+_Bool 
 hh_path_is_root(const char* path) {
-	if(path == NULL) return false;
+	if(path == NULL) return 0;
 #ifdef _WIN32
-    if(hh_darrlen(path) != 4) return false;
-	if(path[0] < 'A' || path[0] > 'Z') return false;
+    if(hh_darrlen(path) != 4) return 0;
+	if(path[0] < 'A' || path[0] > 'Z') return 0;
 	return path[1] == ':' && path[2] == '/';
 #else
     return hh_darrlen(path) == 2 && path[0] == '/';
@@ -642,12 +640,12 @@ hh_path_parent(char* path) {
 #endif // __STDC_VERSION__
 #endif // __STD__
 
-bool
+_Bool
 hh_edition_supported(enum hh_edition ed) {
 	return HH_EDITION >= (long) (ed);
 }
 
-bool
+_Bool
 hh_span_init(hh_span_t* span, const char* ptr, const char* delim) {
 	span->ptr = ptr;
 	span->delim = delim;
@@ -657,20 +655,20 @@ hh_span_init(hh_span_t* span, const char* ptr, const char* delim) {
 	return hh_span_next(span);
 }
 
-bool
+_Bool
 hh_span_next(hh_span_t* span) {
 	const char* ptr = span->ptr + span->len + span->skips;
 	span->len = 0;
 	span->skips = 0;
 	span->ptr = ptr;
-	if(!*ptr) return false;
+	if(!*ptr) return 0;
 	size_t delim_len = span->delim ? strlen(span->delim) : 0;
 	if(span->delim) {
 		while(*ptr && strncmp(ptr, span->delim, delim_len) != 0 && !strchr(" \t\r\n", *ptr)) ++ptr;
 	} else while(*ptr && !strchr(" \t\r\n", *ptr)) ++ptr;
 	// ptr now is at the end of the token, pointing to either whitespace or the start of the delimiter
 	span->len = (size_t) (ptr - span->ptr);
-	if(span->len == 0 && span->delim == NULL) return false;
+	if(span->len == 0 && span->delim == NULL) return 0;
 	while(*ptr && strchr(" \t\r", *ptr)) ++ptr;
 	if(*ptr == '\0') goto hh_span_next_skips;
 	// either at the delim or a newline
@@ -680,16 +678,16 @@ hh_span_next(hh_span_t* span) {
 	}
 	// we are 100% pointing at a delim if there is one
 	if(span->delim) {
-		if(strncmp(ptr, span->delim, delim_len) != 0) return false;
+		if(strncmp(ptr, span->delim, delim_len) != 0) return 0;
 		ptr += delim_len;
 		while(*ptr && strchr(" \t\r\n", *ptr)) ++ptr;
 	}
 hh_span_next_skips:
 	span->skips = (size_t) (ptr - span->ptr) - span->len;
-	return true;
+	return 1;
 }
 
-bool
+_Bool
 hh_span_next_line(hh_span_t* span) {
 	const char* ptr = span->ptr + span->len + span->skips;
 	span->len = 0;
@@ -697,18 +695,18 @@ hh_span_next_line(hh_span_t* span) {
 	while(*ptr && *ptr != '\n') ++ptr;
 	if(*ptr == '\n') ++ptr;
 	span->ptr = ptr;
-	if(*ptr == '\0') return false;
+	if(*ptr == '\0') return 0;
 	return hh_span_next(span);
 }
 
-bool
+_Bool
 hh_span_equals(const hh_span_t span, const char* other) {
 	size_t len = strlen(other);
-	if(span.len != len) return false;
+	if(span.len != len) return 0;
 	return strncmp(span.ptr, other, span.len) == 0;
 }
 
-bool
+_Bool
 hh_span_parse(const hh_span_t* span, const char* fmt, void* out) {
 	HH_ASSERT(fmt[0] == '%', "Unsupported format specifier [%s].", fmt);
 	static char fmt_buf[HH_SPAN_BUF_LEN + 1];
@@ -716,7 +714,7 @@ hh_span_parse(const hh_span_t* span, const char* fmt, void* out) {
 	return sscanf(span->ptr, fmt_buf, out);
 }
 
-bool
+_Bool
 hh_span_parse_next(hh_span_t* span, const char* fmt, void* out) {
 	return hh_span_parse(span, fmt, out) && hh_span_next(span);
 }
@@ -763,12 +761,12 @@ hh_skip_whitespace(const char* ptr) {
 	return ptr;
 }
 
-bool
+_Bool
 hh_has_prefix(const char* str, const char* prefix) {
 	return strncmp(str, prefix, strlen(prefix)) == 0;
 }
 
-bool
+_Bool
 hh_has_suffix(const char* str, const char* suffix) {
     size_t len_str = strlen(str);
     size_t len_suffix = strlen(suffix);
@@ -873,11 +871,11 @@ HH_H__impl_map_comp_generic(const hh_map_t* map, const void* key_query, size_t s
 	return 0;
 }
 
-bool 
+_Bool 
 HH_H__impl_map_replace(hh_map_t* map, const void* key, size_t size_key, const void* val, size_t size_val) {
 	// get the entry, we can only replace if it exists
     hh_map_entry_t entry = hh_map_get(map, key, size_key);
-    if(entry.val == NULL) return false;
+    if(entry.val == NULL) return 0;
 	// entry bounds
     char* entry_begin = (char*) entry.key - sizeof(size_t) * 2;
     char* entry_val = (char*) entry.val;
@@ -898,18 +896,18 @@ HH_H__impl_map_replace(hh_map_t* map, const void* key, size_t size_key, const vo
 	// update metadata and replace value
     ((size_t*) entry_begin)[1] = size_val;
     memcpy(entry_val, val, size_val);
-    return true;
+    return 1;
 }
 
-bool
+_Bool
 hh_map_insert(hh_map_t* map, const void* key, size_t size_key, const void* val, size_t size_val) {
-    if(map == NULL) return false;
+    if(map == NULL) return 0;
     // initialize map
     if(map->buckets == NULL) {
         map->buckets = calloc(map->bucket_count, sizeof(char*));
-        if(map->buckets == NULL) return false;
+        if(map->buckets == NULL) return 0;
         for(size_t i = 0; i < map->bucket_count; ++i) hh_darradd(map->buckets[i], sizeof(size_t) * 2);
-    } else if(HH_H__impl_map_replace(map, key, size_key, val, size_val)) return true;
+    } else if(HH_H__impl_map_replace(map, key, size_key, val, size_val)) return 1;
     // perform insertion
     size_t idx, len;
     idx = HH_H__impl_map_hash_generic(map, key, size_key);
@@ -922,10 +920,10 @@ hh_map_insert(hh_map_t* map, const void* key, size_t size_key, const void* val, 
 	// copy over entry
     memcpy(meta, key, size_key);
     memcpy(((char*) meta) + size_key, val, size_val);
-    return true;
+    return 1;
 }
 
-bool
+_Bool
 hh_map_insert_entry(hh_map_t* map, const hh_map_entry_t* entry) {
     return hh_map_insert(map, entry->key, entry->size_key, entry->val, entry->size_val);
 }
@@ -956,11 +954,11 @@ hh_map_get_val(const hh_map_t* map, const void* key, size_t size_key) {
     return hh_map_get(map, key, size_key).val;
 }
 
-bool
+_Bool
 hh_map_remove(hh_map_t* map, const void* key, size_t size_key) {
 	// get corresponding entry
     hh_map_entry_t entry = hh_map_get(map, key, size_key);
-    if(entry.val == NULL) return false;
+    if(entry.val == NULL) return 0;
 	// recompute bucket
     size_t idx = HH_H__impl_map_hash_generic(map, key, size_key);
     char* bucket = map->buckets[idx];
@@ -973,7 +971,7 @@ hh_map_remove(hh_map_t* map, const void* key, size_t size_key) {
     memmove(entry_begin, entry_end, tail);
 	// update hh_darrheader_t length to reflect changes
     hh_darrheader(bucket)->len -= (entry.size_key + entry.size_val + sizeof(size_t) * 2);
-    return true;
+    return 1;
 }
 
 void
