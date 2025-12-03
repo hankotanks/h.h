@@ -112,6 +112,18 @@ hh_malloc_checked(size_t size);
 void*
 hh_calloc_checked(size_t num, size_t size);
 
+// union to easily pass around and store function pointers as data pointers
+// without breaking C99 conventions
+typedef union {
+    const void* _ptr;
+    void (*_fp)(void);
+} hh_fp_wrap_t;
+
+// accepts a function pointer and returns hh_fp_wrap_t
+#define hh_fp_wrap(fp) ((hh_fp_wrap_t) { ._fp = (void(*)(void)) (fp) })
+// accepts hh_fp_wrap_t* and returns a function pointer specified by fp_type
+#define hh_fp_unwrap(fp_wrap, fp_type) ((fp_type) (((hh_fp_wrap_t*) (fp_wrap))->_fp))
+
 // Adapted from...
 // stb_ds.h - v0.67 - public domain data structures - Sean Barrett 2019
 
@@ -1074,6 +1086,9 @@ hh_map_free(hh_map_t* map) {
 #define UNREACHABLE HH_UNREACHABLE
 #define malloc_checked hh_malloc_checked
 #define calloc_checked hh_calloc_checked
+#define fp_wrap_t hh_fp_wrap_t
+#define fp_wrap hh_fp_wrap
+#define fp_unwrap hh_fp_unwrap
 #define darrclear hh_darrclear
 #define darrfree hh_darrfree
 #define darrlast hh_darrlast
