@@ -295,22 +295,22 @@ typedef struct {
 // insert a key-value pair into the hashmap
 bool
 hh_map_insert(hh_map_t* map, const void* key, size_t size_key, const void* val, size_t size_val);
+// macro for inserting string keys
+// NOTE: the key stored in the hashmap is null-terminated,
+// which means hh_map_get calls MUST also include a null-terminator with default hh_map_comp_f behavior
+#define hh_map_insert_with_cstr_key(map, key, val, size_val) hh_map_insert(map, key, strlen(key) + 1, val, size_val)
 // insert an hh_map_entry_t element
 // useful for copying from one hashmap to another
 bool
 hh_map_insert_entry(hh_map_t* map, const hh_map_entry_t* entry);
-// macro for inserting string keys
-#define hh_map_insert_with_cstr_key(map, key, val, size_val) \
-	hh_map_insert(map, key, strlen(key) + 1, val, size_val)
 // returns the key-value pair associated with a given key
 // if the key does not exist in the map, the entry is 0-initialized
 // NOTE: changing the underlying key & value data is a corrupting action
 // if the length overruns size_key or size_val, respectively
 hh_map_entry_t
 hh_map_get(const hh_map_t* map, const void* key, size_t size_key);
-// macro for querying with string keys
-#define hh_map_get_with_cstr_sky(map, key) \
-	hh_map_get(map, key, strlen(key) + 1, val, size_val);
+// macro for querying with cstr keys
+#define hh_map_get_with_cstr_sky(map, key) hh_map_get(map, key, strlen(key) + 1, val, size_val);
 // returns the value corresponding to the given key
 // NULL if the key is not a member of the map
 const void*
@@ -321,8 +321,7 @@ bool
 hh_map_remove(hh_map_t* map, const void* key, size_t size_key);
 // iterator macro for hh_map
 // hh_map_it(&map, it) printf("%.*s", (int) it.size_key, it.key);
-#define hh_map_it(map, it) \
-    for(hh_map_entry_t it = HH_H__impl_map_it_begin(map); it.val; HH_H__impl_map_it_next(map, &it))
+#define hh_map_it(map, it) for(hh_map_entry_t it = HH_H__impl_map_it_begin(map); it.val; HH_H__impl_map_it_next(map, &it))
 // free hh_map_t
 void
 hh_map_free(hh_map_t* map);
@@ -1115,13 +1114,17 @@ hh_map_free(hh_map_t* map) {
 #define has_suffix hh_has_suffix
 #define map_hash_f hh_map_hash_f
 #define map_comp_f hh_map_comp_f
+#define map_free_f hh_map_free_f
 #define map_t hh_map_t
 #define map_entry_t hh_map_entry_t
 #define map_insert hh_map_insert
+#define map_insert_with_cstr_key hh_map_insert_with_cstr_key
 #define map_insert_entry hh_map_insert_entry
 #define map_get hh_map_get
+#define map_get_with_cstr_key hh_map_get_with_cstr_key
 #define map_get_val hh_map_get_val
 #define map_remove hh_map_remove
+#define map_it hh_map_it
 #define map_free hh_map_free
 //
 #endif // HH_STRIP_PREFIXES
