@@ -12,7 +12,7 @@ int
 main(void) {
     // build path to odometry.csv
     char* path = path_alloc(PROJECT_ROOT);
-    ASSERT(path_join(path, "assets", "odom.csv"), "Failed construct path to odom.csv");
+    ASSERT(path_join(path, "tests", "assets", "odom.csv"), "Failed construct path to odom.csv");
     DBG("Path to odometry: %s", path);
     // read contents
     char* contents = read_entire_file(path);
