@@ -113,12 +113,7 @@ op_remove(hh_map_t* map, hh_span_t* token) {
         HH_ERR("Given key was not found: %.*s", (int) token->len, token->ptr);
         return false;
     }
-    char* key = strndup(entry.key, entry.size_key);
-    char* val = strndup(entry.val, entry.size_val);
-    bool ret = hh_map_remove(map, token->ptr, token->len);
-    free(key);
-    free(val);
-    return ret;
+    return hh_map_remove(map, token->ptr, token->len);
 }
 
 bool

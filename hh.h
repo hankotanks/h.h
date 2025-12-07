@@ -495,7 +495,7 @@ hh_path_alloc(const char *raw) {
         free(raw_abs);
         return NULL;
     }
-    if(raw_abs[1] == ':' && raw_abs[0] >= 'a' && raw_abs[0] <= 'z') 
+    if(raw_abs[0] >= 'a' && raw_abs[0] <= 'z' && raw_abs[1] == ':')
 		raw_abs[0] -= ('a' - 'A');
 #else
     raw_abs = realpath(raw, NULL);
@@ -505,8 +505,13 @@ hh_path_alloc(const char *raw) {
     free(raw_abs);
     if(path == NULL) return NULL;
     for(size_t i = 0; path[i]; i++) if(path[i] == '\\') path[i] = '/';
+	// length of root path is platform-dependent
+	size_t len_root = 1;
+#ifdef _WIN32
+	len_root = 3;
+#endif
     size_t len = hh_darrlen(path);
-    if(len > 2 && path[len - 2] == '/' && path[1] != '\0') {
+    if(len > (len_root + 1) && path[len - 2] == '/' && path[len - 1] != '\0') {
         path[len - 2] = '\0';
         hh_darrheader(path)->len -= 1;
     }
