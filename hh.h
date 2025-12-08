@@ -439,14 +439,14 @@ HH_H__impl_map_it_next(const hh_map_t* map, hh_map_entry_t* entry);
 void*
 hh_malloc_checked(size_t size) {
 	void* ptr = malloc(size);
-	HH_ASSERT(ptr != NULL, "Failed to allocate %zu bytes.", size);
+	HH_ASSERT(ptr != NULL, "Failed to allocate %llu bytes.", (unsigned long long) size);
 	return ptr;
 }
 
 void*
 hh_calloc_checked(size_t num, size_t size) {
 	void* ptr = calloc(num, size);
-	HH_ASSERT(ptr != NULL, "Failed to allocate %zu bytes.", size);
+	HH_ASSERT(ptr != NULL, "Failed to allocate %llu bytes.", (unsigned long long) size);
 	return ptr;
 }
 
@@ -526,12 +526,13 @@ hh_path_alloc(const char *raw) {
     if(path == NULL) return NULL;
     for(size_t i = 0; path[i]; i++) if(path[i] == '\\') path[i] = '/';
 	// length of root path is platform-dependent
-	size_t len_root = 1;
 #ifdef _WIN32
-	len_root = 3;
+	size_t len_root = 3;
+#else
+	size_t len_root = 1;
 #endif
     size_t len = hh_darrlen(path);
-    if(len > (len_root + 1) && path[len - 2] == '/' && path[len - 1] != '\0') {
+    if(len > (len_root + 1) && path[len - 2] == '/' && path[len - 1] == '\0') {
         path[len - 2] = '\0';
         hh_darrheader(path)->len -= 1;
     }
@@ -581,9 +582,9 @@ HH_H__impl_path_join(char* path, ...) {
     while((sub = va_arg(args, const char*)) != NULL) {
         if(sub[0] == '/' || sub[0] == '\\') ++sub;
         (void) hh_darrpop(path);
-        if (hh_darrlast(path) != '/') hh_darrputstr(path, "/");
+        if(hh_darrlast(path) != '/') hh_darrputstr(path, "/");
         hh_darrputstr(path, sub);
-        if (hh_darrlen(path) > 2 && hh_darrlast(path) == '/') (void) hh_darrpop(path);
+        if(hh_darrlen(path) > 2 && hh_darrlast(path) == '/') (void) hh_darrpop(path);
     }
     va_end(args);
     hh_darrput(path, '\0');
@@ -605,22 +606,19 @@ hh_path_parent(char* path) {
 	if(hh_path_is_root(path)) return NULL;
 	while(hh_darrlast(path) != '/') (void) hh_darrpop(path);
 #ifdef _WIN32
-	if(hh_darrlen(path) == 3 && path[0] >= 'A' && path[0] <= 'Z' && path[1] == ':' && path[2] == '/') {
-		if(hh_darrlen(path) == 4) hh_darrfree(path);
-		else hh_darrput(path, '\0');
-	} else {
-		hh_darrpop(path);
-		hh_darrput(path, '\0');
-	}
+	size_t len_root = 3;
+	_Bool root = path[0] >= 'A' && path[0] <= 'Z' && path[1] == ':' && path[2] == '/';
 #else
-	if(hh_darrlen(path) == 1 && path[0] == '/') {
-		if(hh_darrlen(path) == 2) hh_darrfree(path);
+	size_t len_root = 1;
+	_Bool root = path[0] == '/';
+#endif
+	if(hh_darrlen(path) == len_root && root) {
+		if(hh_darrlen(path) == len_root + 1) hh_darrfree(path);
 		else hh_darrput(path, '\0');
 	} else {
 		(void) hh_darrpop(path);
 		hh_darrput(path, '\0');
 	}
-#endif
 	return path;
 }
 
@@ -735,7 +733,7 @@ _Bool
 hh_span_parse(const hh_span_t* span, const char* fmt, void* out) {
 	HH_ASSERT(fmt[0] == '%', "Unsupported format specifier [%s].", fmt);
 	static char fmt_buf[HH_SPAN_BUF_LEN + 1];
-	snprintf(fmt_buf, HH_SPAN_BUF_LEN, "%%%zu%s", span->len, &fmt[1]);
+	snprintf(fmt_buf, HH_SPAN_BUF_LEN, "%%%llu%s", (unsigned long long) span->len, &fmt[1]);
 	return sscanf(span->ptr, fmt_buf, out);
 }
 
@@ -744,41 +742,43 @@ hh_span_parse_next(hh_span_t* span, const char* fmt, void* out) {
 	return hh_span_parse(span, fmt, out) && hh_span_next(span);
 }
 
-#define HH_CHECK_STREAM(stream, cond, ...) if(!(cond)) { \
-		fclose((stream)); \
-		HH_ERR(__VA_ARGS__); \
-	} \
-	if(!(cond))
-
 char* 
 hh_read_entire_file(const char* path) {
     FILE* f = fopen(path, "rb");
+	char* buf = NULL;
 	if(f == NULL) {
 		HH_ERR("Failed to open file at path [%s].", path);
 		return NULL;
 	}
-	HH_CHECK_STREAM(f, !fseek(f, 0, SEEK_END), 
-		"Failed to seek to end of file while reading [%s].", path) return NULL;
+	if(fseek(f, 0, SEEK_END)) {
+		HH_ERR("Failed to seek to end of file while reading [%s].", path);
+		goto hh_read_entire_file_failure;
+	}
     long size_temp = ftell(f);
-	HH_CHECK_STREAM(f, size_temp >= 0, "Failed to read file size [%s].", path) 
-		return NULL;
+	if(size_temp < 0) {
+		HH_ERR("Failed to read file size [%s].", path);
+		goto hh_read_entire_file_failure;
+	}
 	unsigned long size = (unsigned long) size_temp;
     rewind(f);
-	char* buf = NULL;
 	(void) hh_darradd(buf, size);
-	HH_CHECK_STREAM(f, buf != NULL, "Failed to allocate buffer for file contents [%s].", path) 
-		return NULL;
-    size_t read_size = fread(buf, 1, size, f);
-	HH_CHECK_STREAM(f, read_size == (size_t) size, "Failed to read entire file into buffer [%s].", path) {
-		hh_darrfree(buf);
-		return NULL;
+	if(buf == NULL) {
+		HH_ERR("Failed to allocate buffer for file contents [%s].", path);
+		goto hh_read_entire_file_failure;
 	}
-	(void) hh_darradd(buf, '\0');
+    size_t read_size = fread(f_buf, 1, size, f);
+	if(read_size != (size_t) size) {
+		HH_ERR("Failed to read entire file into buffer [%s].", path);
+		goto hh_read_entire_file_failure;
+	}
+	(void) hh_darradd(f_buf, '\0');
     fclose(f);
-    return buf;
+    return f_buf;
+hh_read_entire_file_failure:
+	fclose(f);
+	hh_darrfree(f_buf);
+	return NULL;
 }
-
-#undef HH_CHECK_STREAM
 
 const char*
 hh_skip_whitespace(const char* ptr) {
