@@ -367,6 +367,11 @@ hh_map_remove(hh_map_t* map, const void* key, size_t size_key);
 void
 hh_map_free(hh_map_t* map);
 
+// structure representing the argument parser tree
+// NOTE: must be 0 initialized
+// hh_args_t manages all allocations internally, including parsed paths
+typedef struct HH_H__args_t hh_args_t;
+
 // the types of values that can be parsed
 // hh_args_add_opt's return value can be directly assigned to the types
 // shown to the right of the enumerators
@@ -379,17 +384,12 @@ typedef enum {
     HH_ARGS_ULONG // const unsigned long*
 } hh_args_opt_t;
 
-// structure representing the argument parser tree
-// NOTE: must be 0 initialized
-// hh_args_t manages all allocations internally, including parsed paths
-typedef struct HH_H__args_t hh_args_t;
-
 // add an optional value to the argument parser
 const void*
 hh_args_add_opt(hh_args_t* args, char flag, const char* flag_name, const char* flag_desc, hh_args_opt_t val_type, const char* val_name);
 // add a new command to the argument parser
 hh_args_t*
-hh_args_add_command(hh_args_t* args, const char* name, const char* desc);
+hh_args_add_cmd(hh_args_t* args, const char* name, const char* desc);
 // parse command line arguments
 // returns truthy on success
 _Bool
@@ -1248,7 +1248,7 @@ hh_args_add_opt(hh_args_t* args, char flag, const char* flag_name, const char* f
 }
 
 hh_args_t*
-hh_args_add_command(hh_args_t* args, const char* name, const char* desc) {
+hh_args_add_cmd(hh_args_t* args, const char* name, const char* desc) {
     HH_ASSERT(name != NULL, "name was NULL");
     for(size_t i = 0; i < hh_darrlen(args->commands); ++i) {
         HH_ASSERT(strcmp(name, args->commands[i].name) != 0, "Invalid hh_args_t configuration. Command already exists: %s", name);
@@ -1693,6 +1693,14 @@ hh_args_print_usage(const hh_args_t* args, int argc, char* argv[]) {
 #define map_remove hh_map_remove
 #define map_it hh_map_it
 #define map_free hh_map_free
+#define args_t hh_args_t
+#define args_opt_t hh_args_opt_t
+#define args_add_opt hh_args_add_opt
+#define args_add_cmd hh_args_add_cmd
+#define args_parse hh_args_parse
+#define args_parse_print_err hh_args_parse_print_err
+#define args_free hh_args_free
+#define args_print_usage hh_args_print_usage
 //
 #endif // HH_STRIP_PREFIXES
 //
