@@ -13,14 +13,6 @@ op_remove(hh_map_t* map, hh_span_t* token);
 bool
 op_get(hh_map_t* map, hh_span_t* token);
 
-// overrides for hh_map_comp_f and hh_map_hash_f which
-// ignore null-terminators, which allows matching between string literals
-// and hh_span_t string views
-size_t
-op_man_hash(const void* key, size_t size_key);
-int 
-op_map_comp(const void* key_query, size_t size_key_query, const void* key_in, size_t size_key_in);
-
 // helper functions for printing the cstr2cstr map
 void
 cstr2cstr_dump_keys(const hh_map_t* map);
@@ -32,7 +24,7 @@ main(int argc, char* argv[]) {
     (void) argc;
     (void) argv;
     // initialize map of available commands
-    hh_map_t op_map = { .bucket_count = 5, .hash = op_man_hash, .comp = op_map_comp, 0 };
+    hh_map_t op_map = { .bucket_count = 5, 0 };
     hh_map_insert_with_cstr_key(&op_map, "insert", &hh_fp_wrap(op_insert), sizeof(hh_fp_wrap_t));
     hh_map_insert_with_cstr_key(&op_map, "remove", &hh_fp_wrap(op_remove), sizeof(hh_fp_wrap_t));
     hh_map_insert_with_cstr_key(&op_map, "get",    &hh_fp_wrap(op_get), sizeof(hh_fp_wrap_t));
@@ -131,24 +123,6 @@ op_get(hh_map_t* map, hh_span_t* token) {
         (int) entry.size_key, (char*) entry.key, 
         (int) entry.size_val, (char*) entry.val);
     return true;
-}
-
-size_t
-op_man_hash(const void* key, size_t size_key) {
-    if(((char*) key)[size_key - 1] == '\0') size_key--;
-    size_t hash = 5381;
-    for (size_t i = 0; i < size_key; ++i) hash = ((hash << 5) + hash) + (size_t) ((char*) key)[i];
-    return hash;
-}
-
-int 
-op_map_comp(const void* key_query, size_t size_key_query, const void* key_in, size_t size_key_in) {
-    size_key_in -= 1;
-    int result = memcmp(key_query, key_in, HH_MIN(size_key_query, size_key_in));
-	if(result != 0) return result;
-	if(size_key_query < size_key_in) return -1;
-    if(size_key_query > size_key_in) return 1;
-	return 0;
 }
 
 void
