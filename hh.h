@@ -1282,9 +1282,14 @@ HH_H__args_parse_helper(const hh_args_t* args, char* argv, struct HH_H__args_val
     return 1;
 }
 
-_Bool
+const struct HH_H__args_val_t*
 HH_H__args_parse_opt_exists(const hh_args_t* args, char* argv) {
     hh_map_entry_t entry;
+    const struct HH_H__args_val_t* ret;
+    for(size_t i = 0; i < hh_darrlen(args->commands); ++i) {
+        ret = HH_H__args_parse_opt_exists(&args->commands[i], argv);
+        if(ret) return ret;
+    }
     size_t len = strlen(argv);
     if(len > 2 && hh_has_prefix(argv, "--")) {
         char* split = NULL;
@@ -1293,12 +1298,9 @@ HH_H__args_parse_opt_exists(const hh_args_t* args, char* argv) {
             hh_map_get_with_cstr_key(&args->flag_names, argv + 2);
     } else if(len > 1 && argv[0] == '-') {
         entry = hh_map_get(&args->flags, argv + 1, 1);
-    }
-    if(entry.val) return 1;
-    for(size_t i = 0; i < hh_darrlen(args->commands); ++i) {
-        if(HH_H__args_parse_opt_exists(&args->commands[i], argv)) return 1;
-    }
-    return 0;
+    } else return NULL;
+    if(entry.val) return entry.val;
+    return NULL;
 }
 
 void
@@ -1331,12 +1333,15 @@ hh_args_parse(hh_args_t* args, int argc, char* argv[]) {
         }
     }
     // return error if invalid subcommand provided
+    ++argv;
+    const hh_args_t* args_root = args;
+    while(args_root->parent != NULL) args_root = args_root->parent;
     if(!found) {
-        HH_H__args_parse_set_err(args, HH_ARGS_ERR_COMMAND_INVALID, NULL, argv[1]);
+        HH_H__args_parse_set_err(args, HH_ARGS_ERR_COMMAND_INVALID, 
+            HH_H__args_parse_opt_exists(args_root, argv[0]), argv[0]);
         return 0;
     }
     struct HH_H__args_val_t* val;
-    ++argv;
     for(char* valptr = NULL; argv[0]; ++argv, valptr = NULL) {
         if(!HH_H__args_parse_helper(args, argv[0], &val, &valptr)) continue;
         if(val->set) {
@@ -1356,8 +1361,6 @@ hh_args_parse(hh_args_t* args, int argc, char* argv[]) {
                     HH_H__args_parse_set_err(args, HH_ARGS_ERR_OPTION_MISSING_VALUE, val, NULL);
                     return 0;
                 }
-                const hh_args_t* args_root = args;
-                while(args_root->parent != NULL) args_root = args_root->parent;
                 if(HH_H__args_parse_opt_exists(args_root, argv[0])) {
                     HH_H__args_parse_set_err(args, HH_ARGS_ERR_OPTION_MISSING_VALUE, val, NULL);
                     return 0;
@@ -1419,19 +1422,35 @@ hh_args_parse_print_err(const hh_args_t* args, FILE* stream) {
     switch(args->err.err_type) {
     case HH_ARGS_ERR_NONE: return;
     case HH_ARGS_ERR_COMMAND_MISSING: 
-        if(args->err.err_origin->parent == NULL) {
-            fprintf(stream, "Malformed arguments");
-        } else {
-            fprintf(stream, "Missing required subcommand for %s", args->err.err_origin->name);
+        fprintf(stream, "Missing required ");
+        if(args->err.err_origin->parent == NULL) fprintf(stream, "command");
+        else fprintf(stream, "subcommand for %s", args->err.err_origin->name);
+        size_t len = hh_darrlen(args->err.err_origin->commands);
+        if(len > 0) {
+            fprintf(stream, " [must be one of: ");
+            for(size_t i = 0; i < len; ++i) {
+                fprintf(stream, "%s", args->err.err_origin->commands[i].name);
+                if(i + 1 < len) fprintf(stream, ", ");
+            }
+            fprintf(stream, "]");
         }
         break;
-    case HH_ARGS_ERR_COMMAND_INVALID: 
-        if(args->err.err_origin->parent == NULL) {
-            fprintf(stream, "Invalid command: %s", args->err.err_extra);
-        } else {
-            fprintf(stream, "Invalid subcommand for %s: %s", args->err.err_origin->name, args->err.err_extra);
+    case HH_ARGS_ERR_COMMAND_INVALID: {
+        if(err_val) fprintf(stream, "Provided argument before required ");
+        else fprintf(stream, "Invalid ");
+        if(args->err.err_origin->parent == NULL) fprintf(stream, "command");
+        else fprintf(stream, "subcommand for %s", args->err.err_origin->name);
+        size_t len = hh_darrlen(args->err.err_origin->commands);
+        if(len > 0) {
+            fprintf(stream, " [must be one of: ");
+            for(size_t i = 0; i < len; ++i) {
+                fprintf(stream, "%s", args->err.err_origin->commands[i].name);
+                if(i + 1 < len) fprintf(stream, ", ");
+            }
+            fprintf(stream, "]");
         }
-        break;
+        fprintf(stream, ": %s",  args->err.err_extra);
+    } break;
     case HH_ARGS_ERR_OPTION_MISSING_VALUE:
     case HH_ARGS_ERR_OPTION_INVALID: 
     case HH_ARGS_ERR_OPTION_DUPLICATE:
