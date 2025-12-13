@@ -1674,10 +1674,6 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define span_parse hh_span_parse
 #define span_parse_next hh_span_parse_next
 #define span_equals hh_span_equals
-#define read_entire_file hh_read_entire_file
-#define skip_whitespace hh_skip_whitespace
-#define has_prefix hh_has_prefix
-#define has_suffix hh_has_suffix
 #define map_hash_f hh_map_hash_f
 #define map_comp_f hh_map_comp_f
 #define map_free_f hh_map_free_f
@@ -1700,6 +1696,10 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define args_print_error hh_args_print_error
 #define args_free hh_args_free
 #define args_print_usage hh_args_print_usage
+#define read_entire_file hh_read_entire_file
+#define skip_whitespace hh_skip_whitespace
+#define has_prefix hh_has_prefix
+#define has_suffix hh_has_suffix
 //
 #endif // HH_STRIP_PREFIXES
 //
