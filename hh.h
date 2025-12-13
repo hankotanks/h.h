@@ -9,9 +9,6 @@
 #include <stdio.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <string.h>
 #include <assert.h>
 
 // log only errors
@@ -283,22 +280,6 @@ hh_span_parse(const hh_span_t* span, const char* fmt, void* out);
 _Bool
 hh_span_parse_next(hh_span_t* span, const char* fmt, void* out);
 
-// reads an entire file given by path
-// returns a dynamic array with file contents (free with hh_darrfree)
-// returns NULL on failure
-char* 
-hh_read_entire_file(const char* path);
-// returns a pointer to the same string that 
-// has been advanced past any initial whitespace
-const char*
-hh_skip_whitespace(const char* str);
-// returns truthy when the `str` starts with `prefix`
-_Bool
-hh_has_prefix(const char* str, const char* prefix);
-// returns truthy when the `str` ens with `suffix`
-_Bool
-hh_has_suffix(const char* str, const char* suffix);
-
 // templates for custom key hashing and comparator functions
 typedef size_t (*hh_map_hash_f)(const void* key, size_t size_key);
 // hh_map_comp_f's return value follows the same paradigm as memcmp or strcmp
@@ -356,6 +337,8 @@ hh_map_get(const hh_map_t* map, const void* key, size_t size_key);
 // NULL if the key is not a member of the map
 const void*
 hh_map_get_val(const hh_map_t* map, const void* key, size_t size_key);
+// another helper that returns the value pointer for a cstr key, instead of the entry
+#define hh_map_get_val_with_cstr_key(map, key) hh_map_get_val(map, key, strlen(key))
 // remove entry corresponding to the given key
 // returns truthy if an entry was removed
 _Bool
@@ -404,6 +387,22 @@ hh_args_free(hh_args_t* args);
 // print usage as defined by hh_args_t
 void
 hh_args_print_usage(const hh_args_t* args, FILE* stream, int argc, char* argv[]);
+
+// reads an entire file given by path
+// returns a dynamic array with file contents (free with hh_darrfree)
+// returns NULL on failure
+char* 
+hh_read_entire_file(const char* path);
+// returns a pointer to the same string that 
+// has been advanced past any initial whitespace
+const char*
+hh_skip_whitespace(const char* str);
+// returns truthy when the `str` starts with `prefix`
+_Bool
+hh_has_prefix(const char* str, const char* prefix);
+// returns truthy when the `str` ens with `suffix`
+_Bool
+hh_has_suffix(const char* str, const char* suffix);
 //
 #endif // HH_H__
 
@@ -501,11 +500,10 @@ HH_H__impl_map_it_next(const hh_map_t* map, hh_map_entry_t* entry);
 #endif // HH_ARGS_MAX
 
 struct HH_H__args_entry_t {
-    _Bool set;
-    char flag;
-    const char* flag_long;
     const char* desc;
     const char* name;
+    char flag;
+    const char* flag_long;
     hh_args_opt_t type;
     union {
         _Bool bool_;
@@ -514,6 +512,7 @@ struct HH_H__args_entry_t {
         long long_;
         unsigned long ulong_;
     }* val;
+    _Bool set;
 };
 
 struct HH_H__args_t {
@@ -544,14 +543,16 @@ struct HH_H__args_t {
 
 #ifdef HH_IMPLEMENTATION
 // implementation-exclusive includes
+#include <string.h>
 #include <errno.h>
+#include <stdarg.h>
+#include <stdlib.h>
 
 // platform-dependent includes
 #ifdef _WIN32
 #include <io.h>
 #include <windows.h>
 #else
-#include <limits.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #endif // _WIN32
@@ -862,133 +863,6 @@ hh_span_parse_next(hh_span_t* span, const char* fmt, void* out) {
     return hh_span_parse(span, fmt, out) && hh_span_next(span);
 }
 
-char* 
-hh_read_entire_file(const char* path) {
-    FILE* f = fopen(path, "rb");
-    char* f_buf = NULL;
-    if(f == NULL) {
-        HH_ERR("Failed to open file at path [%s].", path);
-        return NULL;
-    }
-    if(fseek(f, 0, SEEK_END)) {
-        HH_ERR("Failed to seek to end of file while reading [%s].", path);
-        goto hh_read_entire_file_failure;
-    }
-    long size_temp = ftell(f);
-    if(size_temp < 0) {
-        HH_ERR("Failed to read file size [%s].", path);
-        goto hh_read_entire_file_failure;
-    }
-    unsigned long size = (unsigned long) size_temp;
-    rewind(f);
-    (void) hh_darradd(f_buf, size);
-    if(f_buf == NULL) {
-        HH_ERR("Failed to allocate buffer for file contents [%s].", path);
-        goto hh_read_entire_file_failure;
-    }
-    size_t read_size = fread(f_buf, 1, size, f);
-    if(read_size != (size_t) size) {
-        HH_ERR("Failed to read entire file into buffer [%s].", path);
-        goto hh_read_entire_file_failure;
-    }
-    (void) hh_darradd(f_buf, '\0');
-    fclose(f);
-    return f_buf;
-hh_read_entire_file_failure:
-    fclose(f);
-    hh_darrfree(f_buf);
-    return NULL;
-}
-
-const char*
-hh_skip_whitespace(const char* ptr) {
-    while(strchr(" \t\r\n", *ptr) && (*ptr) != '\0') ++ptr;
-    return ptr;
-}
-
-_Bool
-hh_has_prefix(const char* str, const char* prefix) {
-    return strncmp(str, prefix, strlen(prefix)) == 0;
-}
-
-_Bool
-hh_has_suffix(const char* str, const char* suffix) {
-    size_t len_str = strlen(str);
-    size_t len_suffix = strlen(suffix);
-    return len_suffix <= len_str && !strcmp(str + len_str - len_suffix, suffix);
-}
-
-/*-
- * Copyright (c) 2011 The NetBSD Foundation, Inc.
- * All rights reserved.
- *
- * This code is derived from software contributed to The NetBSD Foundation
- * by Christos Zoulas.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE NETBSD FOUNDATION, INC. AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
- * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- */
-
-ptrdiff_t
-hh_getdelim(char** buf, size_t* bufsiz, int delimiter, FILE* fp) {
-    char *ptr, *eptr;
-    if(*buf == NULL || *bufsiz == 0) {
-        *bufsiz = BUFSIZ;
-        if ((*buf = (char*) malloc(*bufsiz)) == NULL) return -1;
-    }
-    for(ptr = *buf, eptr = *buf + *bufsiz;;) {
-        int c = fgetc(fp);
-        if(c == -1) {
-            if(feof(fp)) {
-                ptrdiff_t diff = ptr - *buf;
-                if(diff != 0) {
-                    *ptr = '\0';
-                    return diff;
-                }
-            }
-            return -1;
-        }
-        *ptr++ = (char) c;
-        if(c == delimiter) {
-            *ptr = '\0';
-            return ptr - *buf;
-        }
-        if(ptr + 2 >= eptr) {
-            char *nbuf;
-            size_t nbufsiz = *bufsiz * 2;
-            ptrdiff_t d = ptr - *buf;
-            if((nbuf = (char*) realloc(*buf, nbufsiz)) == NULL) return -1;
-            *buf = nbuf;
-            *bufsiz = nbufsiz;
-            eptr = nbuf + nbufsiz;
-            ptr = nbuf + d;
-        }
-    }
-}
-
-ptrdiff_t
-hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
-    return hh_getdelim(buf, bufsiz, '\n', fp);
-}
-
 // adapted from the following link
 // https://gist.github.com/MohamedTaha98/ccdf734f13299efb73ff0b12f7ce429f
 // thanks to MohamedTaha98
@@ -1193,7 +1067,7 @@ hh_map_free(hh_map_t* map) {
 _Bool
 HH_H__args_add_opt_already_exists(hh_args_t* args, char flag, const char* flag_long) {
     if(flag != '\0' && hh_map_get_val(&args->flags, &flag, 1)) return 1;
-    if(flag_long != NULL && hh_map_get_with_cstr_key(&args->flags_long, flag_long).val) return 1;
+    if(flag_long != NULL && hh_map_get_val_with_cstr_key(&args->flags_long, flag_long)) return 1;
     for(size_t i = 0; i < hh_darrlen(args->commands); ++i) {
         if(HH_H__args_add_opt_already_exists(&args->commands[i], flag, flag_long)) return 1;
     }
@@ -1258,7 +1132,7 @@ HH_H__args_parse_helper(hh_args_t* args, char* argv, struct HH_H__args_entry_t**
         // check if there is an equals
         val = (split = strchr(argv, '=')) ?
             hh_map_get_val(&args->flags_long, argv + 2, (size_t) (split - argv - 2)) :
-            hh_map_get_with_cstr_key(&args->flags_long, argv + 2).val;
+            hh_map_get_val_with_cstr_key(&args->flags_long, argv + 2);
     } else if(len > 1 && argv[0] == '-') {
         if(len > 2) split = argv + 1;
         val = hh_map_get_val(&args->flags, argv + 1, 1);
@@ -1283,7 +1157,7 @@ HH_H__args_parse_opt_exists(const hh_args_t* args, char* argv) {
         char* split = NULL;
         val = (split = strchr(argv, '=')) ?
             hh_map_get_val(&args->flags_long, argv + 2, (size_t) (split - argv - 2)) :
-            hh_map_get_with_cstr_key(&args->flags_long, argv + 2).val;
+            hh_map_get_val_with_cstr_key(&args->flags_long, argv + 2);
     } else if(len > 1 && argv[0] == '-') {
         val = hh_map_get_val(&args->flags, argv + 1, 1);
     } else return NULL;
@@ -1607,6 +1481,133 @@ hh_args_print_usage(const hh_args_t* args, FILE* stream, int argc, char* argv[])
     printf("ARGUMENT%*sDESCRIPTION\n", (int) measure - 7, "");
     HH_H__args_print_usage_opt(args, stream, 0, last, NULL, measure);
     hh_darrfree(last);
+}
+
+char* 
+hh_read_entire_file(const char* path) {
+    FILE* f = fopen(path, "rb");
+    char* f_buf = NULL;
+    if(f == NULL) {
+        HH_ERR("Failed to open file at path [%s].", path);
+        return NULL;
+    }
+    if(fseek(f, 0, SEEK_END)) {
+        HH_ERR("Failed to seek to end of file while reading [%s].", path);
+        goto hh_read_entire_file_failure;
+    }
+    long size_temp = ftell(f);
+    if(size_temp < 0) {
+        HH_ERR("Failed to read file size [%s].", path);
+        goto hh_read_entire_file_failure;
+    }
+    unsigned long size = (unsigned long) size_temp;
+    rewind(f);
+    (void) hh_darradd(f_buf, size);
+    if(f_buf == NULL) {
+        HH_ERR("Failed to allocate buffer for file contents [%s].", path);
+        goto hh_read_entire_file_failure;
+    }
+    size_t read_size = fread(f_buf, 1, size, f);
+    if(read_size != (size_t) size) {
+        HH_ERR("Failed to read entire file into buffer [%s].", path);
+        goto hh_read_entire_file_failure;
+    }
+    (void) hh_darradd(f_buf, '\0');
+    fclose(f);
+    return f_buf;
+hh_read_entire_file_failure:
+    fclose(f);
+    hh_darrfree(f_buf);
+    return NULL;
+}
+
+const char*
+hh_skip_whitespace(const char* ptr) {
+    while(strchr(" \t\r\n", *ptr) && (*ptr) != '\0') ++ptr;
+    return ptr;
+}
+
+_Bool
+hh_has_prefix(const char* str, const char* prefix) {
+    return strncmp(str, prefix, strlen(prefix)) == 0;
+}
+
+_Bool
+hh_has_suffix(const char* str, const char* suffix) {
+    size_t len_str = strlen(str);
+    size_t len_suffix = strlen(suffix);
+    return len_suffix <= len_str && !strcmp(str + len_str - len_suffix, suffix);
+}
+
+/*-
+ * Copyright (c) 2011 The NetBSD Foundation, Inc.
+ * All rights reserved.
+ *
+ * This code is derived from software contributed to The NetBSD Foundation
+ * by Christos Zoulas.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE NETBSD FOUNDATION, INC. AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
+ptrdiff_t
+hh_getdelim(char** buf, size_t* bufsiz, int delimiter, FILE* fp) {
+    char *ptr, *eptr;
+    if(*buf == NULL || *bufsiz == 0) {
+        *bufsiz = BUFSIZ;
+        if ((*buf = (char*) malloc(*bufsiz)) == NULL) return -1;
+    }
+    for(ptr = *buf, eptr = *buf + *bufsiz;;) {
+        int c = fgetc(fp);
+        if(c == -1) {
+            if(feof(fp)) {
+                ptrdiff_t diff = ptr - *buf;
+                if(diff != 0) {
+                    *ptr = '\0';
+                    return diff;
+                }
+            }
+            return -1;
+        }
+        *ptr++ = (char) c;
+        if(c == delimiter) {
+            *ptr = '\0';
+            return ptr - *buf;
+        }
+        if(ptr + 2 >= eptr) {
+            char *nbuf;
+            size_t nbufsiz = *bufsiz * 2;
+            ptrdiff_t d = ptr - *buf;
+            if((nbuf = (char*) realloc(*buf, nbufsiz)) == NULL) return -1;
+            *buf = nbuf;
+            *bufsiz = nbufsiz;
+            eptr = nbuf + nbufsiz;
+            ptr = nbuf + d;
+        }
+    }
+}
+
+ptrdiff_t
+hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
+    return hh_getdelim(buf, bufsiz, '\n', fp);
 }
 //
 #endif // HH_IMPLEMENTATION
