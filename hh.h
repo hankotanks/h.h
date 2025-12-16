@@ -87,11 +87,7 @@
 #else
 #define HH_ERR_BLOCK if(0)
 #endif // HH_ERR
-#if defined(__GNUC__) || defined(__clang__)
-#define HH_LOG_APPEND(...) fprintf((FILE*) HH_H__LOG_BLOCK_stream, ##__VA_ARGS__)
-#else
 #define HH_LOG_APPEND(...) fprintf((FILE*) HH_H__LOG_BLOCK_stream, __VA_ARGS__)
-#endif // HH_LOG_APPEND
 #else
 #define HH_DBG_BLOCK if(0)
 #define HH_MSG_BLOCK if(0)
@@ -544,8 +540,8 @@ HH_H__impl_map_it_next(const hh_map_t* map, hh_map_entry_t* entry);
 #endif // HH_ARGS_MAX
 
 struct HH_H__args_entry_t {
-    const char* desc;
     const char* name;
+    const char* desc;
     char flag;
     const char* flag_long;
     hh_args_opt_t type;
@@ -560,27 +556,27 @@ struct HH_H__args_entry_t {
 };
 
 struct HH_H__args_t {
-    struct {
-        enum {
-            HH_ARGS_ERR_NONE = 0,
-            HH_ARGS_ERR_COMMAND_MISSING,
-            HH_ARGS_ERR_COMMAND_INVALID,
-            HH_ARGS_ERR_OPTION_MISSING_VALUE,
-            HH_ARGS_ERR_OPTION_INVALID,
-            HH_ARGS_ERR_OPTION_DUPLICATE
-        } type;
-        const struct HH_H__args_entry_t* entry;
-        const char* extra;
-        struct HH_H__args_t* origin;
-    } err;
-    size_t count;
     const char* name;
     const char* desc;
+    struct HH_H__args_t* commands;
+    struct HH_H__args_t* command_parent;
+    size_t count;
     hh_map_t flags; // <char, size_t>
     hh_map_t flags_long; // <char*, size_t>
     struct HH_H__args_entry_t entries[HH_ARGS_MAX]; // NOTE: this is (unfortunately) fixed-size so that hh_args_add_opt always returns a valid pointer
-    struct HH_H__args_t* commands;
-    struct HH_H__args_t* command_parent;
+    struct {
+        enum {
+            HH_H__ARGS_ERR_NONE = 0,
+            HH_H__ARGS_ERR_COMMAND_MISSING,
+            HH_H__ARGS_ERR_COMMAND_INVALID,
+            HH_H__ARGS_ERR_OPTION_MISSING_VALUE,
+            HH_H__ARGS_ERR_OPTION_INVALID,
+            HH_H__ARGS_ERR_OPTION_DUPLICATE
+        } type;
+        const struct HH_H__args_entry_t* entry;
+        const char* extra;
+        const struct HH_H__args_t* origin;
+    } err;
 };
 //
 #endif // HH_H__
@@ -1182,7 +1178,7 @@ hh_args_parse(hh_args_t* args, int argc, char* argv[]) {
     HH_ASSERT(args != NULL, "Passed NULL hh_args_t pointer to hh_args_parse");
     if(argc <= 1 || argv == NULL || argv[0] == NULL) {
         if(hh_darrlen(args->commands) != 0) {
-            HH_H__args_parse_set_error(args, HH_ARGS_ERR_COMMAND_MISSING, NULL, NULL);
+            HH_H__args_parse_set_error(args, HH_H__ARGS_ERR_COMMAND_MISSING, NULL, NULL);
             return 0;
         } else return 1;
     }
@@ -1199,7 +1195,7 @@ hh_args_parse(hh_args_t* args, int argc, char* argv[]) {
     const hh_args_t* args_root = args;
     while(args_root->command_parent != NULL) args_root = args_root->command_parent;
     if(!found) {
-        HH_H__args_parse_set_error(args, HH_ARGS_ERR_COMMAND_INVALID, 
+        HH_H__args_parse_set_error(args, HH_H__ARGS_ERR_COMMAND_INVALID, 
             HH_H__args_parse_opt_exists(args_root, argv[0]), argv[0]);
         return 0;
     }
@@ -1208,7 +1204,7 @@ hh_args_parse(hh_args_t* args, int argc, char* argv[]) {
         if(!HH_H__args_parse_helper(args, argv[0], &entry, &ptr)) continue;
         if(entry->set) {
             // duplicate option encountered
-            HH_H__args_parse_set_error(args, HH_ARGS_ERR_OPTION_DUPLICATE, entry, NULL);
+            HH_H__args_parse_set_error(args, HH_H__ARGS_ERR_OPTION_DUPLICATE, entry, NULL);
             return 0;
         }
         char* endptr;
@@ -1220,11 +1216,11 @@ hh_args_parse(hh_args_t* args, int argc, char* argv[]) {
             if(ptr == NULL) {
                 if((++argv)[0] == NULL) {
                     // no value provided to option
-                    HH_H__args_parse_set_error(args, HH_ARGS_ERR_OPTION_MISSING_VALUE, entry, NULL);
+                    HH_H__args_parse_set_error(args, HH_H__ARGS_ERR_OPTION_MISSING_VALUE, entry, NULL);
                     return 0;
                 }
                 if(HH_H__args_parse_opt_exists(args_root, argv[0])) {
-                    HH_H__args_parse_set_error(args, HH_ARGS_ERR_OPTION_MISSING_VALUE, entry, NULL);
+                    HH_H__args_parse_set_error(args, HH_H__ARGS_ERR_OPTION_MISSING_VALUE, entry, NULL);
                     return 0;
                 }
                 ptr = argv[0];
@@ -1237,7 +1233,7 @@ hh_args_parse(hh_args_t* args, int argc, char* argv[]) {
                 entry->val->cstr_ = hh_path_alloc(ptr);
                 if(entry->val->cstr_ == NULL) {
                     // invalid path provided
-                    HH_H__args_parse_set_error(args, HH_ARGS_ERR_OPTION_INVALID, entry, ptr);
+                    HH_H__args_parse_set_error(args, HH_H__ARGS_ERR_OPTION_INVALID, entry, ptr);
                     return 0;
                 }
                 break;
@@ -1246,7 +1242,7 @@ hh_args_parse(hh_args_t* args, int argc, char* argv[]) {
                 entry->val->dbl_ = strtod(ptr, &endptr);
                 if(ptr == endptr || errno == ERANGE) {
                     // invalid float provided
-                    HH_H__args_parse_set_error(args, HH_ARGS_ERR_OPTION_INVALID, entry, ptr);
+                    HH_H__args_parse_set_error(args, HH_H__ARGS_ERR_OPTION_INVALID, entry, ptr);
                     return 0;
                 }
                 break;
@@ -1255,7 +1251,7 @@ hh_args_parse(hh_args_t* args, int argc, char* argv[]) {
                 entry->val->long_ = strtol(ptr, &endptr, 0);
                 if(ptr == endptr || errno == ERANGE) {
                     // invalid long provided
-                    HH_H__args_parse_set_error(args, HH_ARGS_ERR_OPTION_INVALID, entry, ptr);
+                    HH_H__args_parse_set_error(args, HH_H__ARGS_ERR_OPTION_INVALID, entry, ptr);
                     return 0;
                 }
                 break;
@@ -1264,7 +1260,7 @@ hh_args_parse(hh_args_t* args, int argc, char* argv[]) {
                 long temp = strtol(ptr, &endptr, 0);
                 if(temp < 0 || ptr == endptr || errno == ERANGE) {
                     // invalid unsigned long provided
-                    HH_H__args_parse_set_error(args, HH_ARGS_ERR_OPTION_INVALID, entry, ptr);
+                    HH_H__args_parse_set_error(args, HH_H__ARGS_ERR_OPTION_INVALID, entry, ptr);
                     return 0;
                 }
                 entry->val->ulong_ = (unsigned long) temp;
@@ -1282,8 +1278,8 @@ void
 hh_args_print_error(const hh_args_t* args, FILE* stream) {
     const struct HH_H__args_entry_t* entry = args->err.entry;
     switch(args->err.type) {
-    case HH_ARGS_ERR_NONE: return;
-    case HH_ARGS_ERR_COMMAND_MISSING: 
+    case HH_H__ARGS_ERR_NONE: return;
+    case HH_H__ARGS_ERR_COMMAND_MISSING: 
         fprintf(stream, "Missing required ");
         if(args->err.origin->command_parent == NULL) fprintf(stream, "command");
         else fprintf(stream, "subcommand for %s", args->err.origin->name);
@@ -1297,7 +1293,7 @@ hh_args_print_error(const hh_args_t* args, FILE* stream) {
             fprintf(stream, "]");
         }
         break;
-    case HH_ARGS_ERR_COMMAND_INVALID: {
+    case HH_H__ARGS_ERR_COMMAND_INVALID: {
         if(entry) fprintf(stream, "Provided argument before required ");
         else fprintf(stream, "Invalid ");
         if(args->err.origin->command_parent == NULL) fprintf(stream, "command");
@@ -1313,9 +1309,9 @@ hh_args_print_error(const hh_args_t* args, FILE* stream) {
         }
         fprintf(stream, ": %s",  args->err.extra);
     } break;
-    case HH_ARGS_ERR_OPTION_MISSING_VALUE:
-    case HH_ARGS_ERR_OPTION_INVALID: 
-    case HH_ARGS_ERR_OPTION_DUPLICATE:
+    case HH_H__ARGS_ERR_OPTION_MISSING_VALUE:
+    case HH_H__ARGS_ERR_OPTION_INVALID: 
+    case HH_H__ARGS_ERR_OPTION_DUPLICATE:
         if(entry->flag == '\0') {
             fprintf(stream, "Option [--%s] ", entry->flag_long);
         } else if(entry->flag_long == NULL) {
@@ -1324,18 +1320,18 @@ hh_args_print_error(const hh_args_t* args, FILE* stream) {
             fprintf(stream, "Option [-%c, --%s] ", entry->flag, entry->flag_long);
         }
         switch(args->err.type) {
-        case HH_ARGS_ERR_OPTION_MISSING_VALUE:
+        case HH_H__ARGS_ERR_OPTION_MISSING_VALUE:
             fprintf(stream, "was missing a required value");
             break;
-        case HH_ARGS_ERR_OPTION_INVALID: 
+        case HH_H__ARGS_ERR_OPTION_INVALID: 
             fprintf(stream, "received an invalid value: %s", args->err.extra);
             break;
-        case HH_ARGS_ERR_OPTION_DUPLICATE:
+        case HH_H__ARGS_ERR_OPTION_DUPLICATE:
             fprintf(stream, "was passed more than once");
             break;
-        case HH_ARGS_ERR_NONE:
-        case HH_ARGS_ERR_COMMAND_MISSING:
-        case HH_ARGS_ERR_COMMAND_INVALID:
+        case HH_H__ARGS_ERR_NONE:
+        case HH_H__ARGS_ERR_COMMAND_MISSING:
+        case HH_H__ARGS_ERR_COMMAND_INVALID:
         default: HH_UNREACHABLE;
         }
         break;
@@ -1576,7 +1572,7 @@ hh_getdelim(char** buf, size_t* bufsiz, int delimiter, FILE* fp) {
     char *ptr, *eptr;
     if(*buf == NULL || *bufsiz == 0) {
         *bufsiz = BUFSIZ;
-        if ((*buf = (char*) malloc(*bufsiz)) == NULL) return -1;
+        if((*buf = (char*) malloc(*bufsiz)) == NULL) return -1;
     }
     for(ptr = *buf, eptr = *buf + *bufsiz;;) {
         int c = fgetc(fp);
