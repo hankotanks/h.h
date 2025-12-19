@@ -1,4 +1,8 @@
-CC ?= gcc
+ifeq ($(OS),Windows_NT)
+	CC := gcc
+else
+	CC ?= gcc
+endif
 
 SRC_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 SRC := $(wildcard $(SRC_DIR)/*.c)

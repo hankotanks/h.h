@@ -4,7 +4,13 @@
 #ifndef _WIN32
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 200809L
-#endif // not _WIN32
+#else
+#ifdef __MINGW32__
+#ifdef _MSC_VER
+#define __USE_MINGW_ANSI_STDIO
+#endif // _MSC_VER
+#endif // __MINGW32__
+#endif // _WIN32
 
 #include <stdio.h>
 #include <stddef.h>
