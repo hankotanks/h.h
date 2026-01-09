@@ -404,7 +404,7 @@ hh_args_add_cmd(hh_args_t* args, const char* name, const char* desc);
 // parse command line arguments
 // returns truthy on success
 _Bool
-hh_args_parse(hh_args_t* args, int argc, char* argv[]);
+hh_args_parse(hh_args_t* args, FILE* stream, int argc, char* argv[]);
 // write parsing error to stream (if one occurred)
 void
 hh_args_print_error(const hh_args_t* args, FILE* stream);
@@ -577,7 +577,7 @@ HH_H__map_it_next(const hh_map_t* map, hh_map_entry_t* entry);
 #endif // HH_ARGS_BUCKET_COUNT
 
 // TODO: Below is the bucket list for hh_args_t, ordered by precedence
-// * [--help, -h] to print context-specific help menus
+// DONE: * [--help, -h] to print context-specific help menus
 // DONE: * required arguments
 // DONE: ** error handling when missing required args
 // * repeated arguments
@@ -608,6 +608,7 @@ struct HH_H__args_t {
     hh_map_t flags_long; // <char*, size_t>
     uintptr_t* entry_list; // NOTE: this is a darr containing pointers to arena-allocated entries to ensure pointer stability
     hh_arena entries;
+    const struct HH_H__args_entry_t* entry_help;
     struct {
         enum {
             HH_H__ARGS_ERR_NONE = 0,
@@ -623,6 +624,7 @@ struct HH_H__args_t {
         const char* extra;
         const struct HH_H__args_t* origin;
     } err;
+    const struct HH_H__args_t* command_parsed;
 };
 
 const void*
@@ -1156,14 +1158,41 @@ HH_H__args_add_opt_already_exists(hh_args_t* args, char flag, const char* flag_l
     return 0;
 }
 
+struct HH_H__args_entry_t*
+HH_H__args_add_opt_help(hh_args_t* args) {
+    static const size_t idx = 0;
+    if(!hh_map_insert(&args->flags, "h", 1, &idx, sizeof(size_t))) return NULL;
+    if(!hh_map_insert_with_cstr_key(&args->flags_long, "help", &idx, sizeof(size_t))) return NULL;
+    struct HH_H__args_entry_t* entry = hh_arena_alloc(&args->entries, sizeof(struct HH_H__args_entry_t));
+    if(entry == NULL) return NULL;
+    entry->desc = "show this help menu";
+    entry->flag = '\0';
+    entry->flag_long = "help";
+    entry->type = HH_ARGS_BOOL;
+    entry->val = calloc(1, sizeof(entry->val[0]));
+    if(entry->val == NULL) return NULL;
+    // TODO: I'm mixing asserts with error returns here
+    // consider a variant of put that is failable (or make it failable by default)
+    hh_darrput(args->entry_list, (uintptr_t) entry);
+    return entry;
+}
+
 const void*
 HH_H__args_add_opt(hh_args_t* args, hh_args_opt_t type, hh_args_opt_cfg cfg) {
     HH_ASSERT(args != NULL, "hh_args_t was NULL");
     size_t count = hh_darrlen(args->entry_list);
+    _Bool result;
+    
     if(count == 0) {
         // initialize hh_args_t
         args->flags.bucket_count = HH_ARGS_BUCKET_COUNT;
         args->flags_long.bucket_count = HH_ARGS_BUCKET_COUNT;
+        // add help menu to root node
+        if(args->command_parent == NULL) {
+            args->entry_help = HH_H__args_add_opt_help(args);
+            HH_ASSERT(args->entry_help != NULL, "Invalid hh_args_t configuration. Failed to add flag: [-h, --help]");
+            count++;
+        }
     }
     HH_ASSERT(cfg.flag != '\0' || cfg.flag_long, "Invalid hh_args_t configuration. Either 'flag' or 'flag_long' must be set");
     hh_args_t* args_root = args;
@@ -1173,7 +1202,6 @@ HH_H__args_add_opt(hh_args_t* args, hh_args_opt_t type, hh_args_opt_cfg cfg) {
         (cfg.flag == '\0') ? "--" : "-",
         (cfg.flag == '\0') ? (int) strlen(cfg.flag_long) : 1, 
         (cfg.flag == '\0') ? cfg.flag_long : &cfg.flag);
-    _Bool result;
     if(cfg.flag != '\0') {
         result = hh_map_insert(&args->flags, &cfg.flag, 1, &count, sizeof(size_t));
         HH_ASSERT(result, "Invalid hh_args_t configuration. Failed to add flag: [-%c]", cfg.flag);
@@ -1182,7 +1210,8 @@ HH_H__args_add_opt(hh_args_t* args, hh_args_opt_t type, hh_args_opt_cfg cfg) {
         result = hh_map_insert_with_cstr_key(&args->flags_long, cfg.flag_long, &count, sizeof(size_t));
         HH_ASSERT(result, "Invalid hh_args_t configuration. Failed to add flag: [--%s]", cfg.flag_long);
     }
-    struct HH_H__args_entry_t* entry = hh_arena_alloc(&args->entries, sizeof(struct HH_H__args_entry_t));
+    struct HH_H__args_entry_t* entry;
+    entry = hh_arena_alloc(&args->entries, sizeof(struct HH_H__args_entry_t));
     // ensure entry was properly allocated
     // TODO: refactor this into a single assert
     if(cfg.flag != '\0' && cfg.flag_long == NULL) HH_ASSERT(entry != NULL, "Invalid hh_args_t configuration. Failed to add flag: [-%c]", cfg.flag);
@@ -1276,6 +1305,12 @@ HH_H__args_parse(hh_args_t* args, int argc, char* argv[]) {
             return 0;
         } else return 1;
     }
+    hh_args_t* args_root = args;
+    while(args_root->command_parent != NULL) args_root = args_root->command_parent;
+    // keep track of the deepest command parsed
+    if(args->name != NULL && strcmp(args->name, argv[0]) == 0) {
+        args_root->command_parsed = args;
+    }
     _Bool found = (hh_darrlen(args->commands) == 0);
     for(size_t i = 0; i < hh_darrlen(args->commands); ++i) {
         if(strcmp(argv[1], args->commands[i].name) == 0) {
@@ -1286,8 +1321,6 @@ HH_H__args_parse(hh_args_t* args, int argc, char* argv[]) {
     }
     // return error if invalid subcommand provided
     ++argv;
-    const hh_args_t* args_root = args;
-    while(args_root->command_parent != NULL) args_root = args_root->command_parent;
     if(!found) {
         HH_H__args_parse_set_error(args, HH_H__ARGS_ERR_COMMAND_INVALID, 
             HH_H__args_parse_opt_exists(args_root, argv[0]), argv[0]);
@@ -1376,8 +1409,18 @@ HH_H__args_parse(hh_args_t* args, int argc, char* argv[]) {
 }
 
 _Bool
-hh_args_parse(hh_args_t* args, int argc, char* argv[]) {
-    if(!HH_H__args_parse(args, argc, argv)) return 0;
+hh_args_parse(hh_args_t* args, FILE* stream, int argc, char* argv[]) {
+    HH_ASSERT_UNREACHABLE(args->entry_help);
+    _Bool result = HH_H__args_parse(args, argc, argv);
+    const hh_args_t* args_help = args;
+    for(int i = 0; i < argc; ++i) {
+        if(args->entry_help == HH_H__args_parse_opt_exists(args, argv[i])) {
+            if(args->command_parsed != NULL) args_help = args->command_parsed;
+            hh_args_print_usage(args_help, stream, argc, argv);
+            return 1;
+        }
+    }
+    if(!result) return 0;
     // ensure no flags corresponding to unused commands are passed
     const struct HH_H__args_entry_t* entry;
     for(int i = 1; i < argc; ++i) {
@@ -1467,7 +1510,9 @@ hh_args_print_error(const hh_args_t* args, FILE* stream) {
         break;
     case HH_H__ARGS_ERR_OPTION_MISMATCH:
         HH_ASSERT_UNREACHABLE(args->err.origin->command_parent == NULL);
-        fprintf(stream, "Flag not supported by provided command(s): ");
+        HH_ASSERT_UNREACHABLE(args->command_parsed != NULL);
+        fprintf(stream, "Flag not supported by provided '%s' ", args->command_parsed->name);
+        fprintf(stream, "%s: ", (args->command_parsed->command_parent == NULL) ? "command" : "subcommand");
         if(args->err.entry->flag != '\0') {
             if(args->err.entry->flag_long != NULL) fprintf(stream, "[-%c, --%s]", args->err.entry->flag, args->err.entry->flag_long);
             else fprintf(stream, "[-%c]", args->err.entry->flag);
@@ -1511,9 +1556,9 @@ HH_H__args_print_usage_helper(const struct HH_H__args_entry_t* entry, FILE* stre
     if(align > 0) align -= 3;
     size_t len_flag_long = entry->flag_long ? strlen(entry->flag_long) : 0;
     if(entry->flag != '\0') {
-        HH_H__args_print_usage_printf("[-%c", entry->flag);
+        HH_H__args_print_usage_printf("%s-%c", entry->req ? "" : "[", entry->flag);
     } else if(entry->flag_long != NULL) {
-        HH_H__args_print_usage_printf("[--%s", entry->flag_long); else (*measure) += len_flag_long;
+        HH_H__args_print_usage_printf("%s--%s", entry->req ? "" : "[", entry->flag_long); else (*measure) += len_flag_long;
         if(align > 0) align -= len_flag_long;
     } else HH_UNREACHABLE;
     const char* name;
@@ -1530,42 +1575,47 @@ HH_H__args_print_usage_helper(const struct HH_H__args_entry_t* entry, FILE* stre
     default: HH_UNREACHABLE;
     }
     size_t len_opt_name = strlen(name);
-    HH_H__args_print_usage_printf(" <%s>] ", name); else (*measure) += len_opt_name + 4;
+    HH_H__args_print_usage_printf(" <%s>%s ", name, entry->req ? "" : "]"); else (*measure) += len_opt_name + 4;
     if(align > 0) align -= len_opt_name + 4;
 finish:
-    if(align > 0 && entry->desc) HH_H__args_print_usage_printf("%*s%s", (int) align, "", entry->desc);
+    if(align > 0 && entry->desc) {
+        HH_H__args_print_usage_printf("%*s%s", (int) align + (entry->req ? 2 : 0), "", entry->desc);
+    }
 }
 
 void
 HH_H__args_print_usage_synopsis(const hh_args_t* args, FILE* stream, int argc, char* argv[]) {
-    const hh_args_t* args_curr = args;
-    // synopsis string should be tailored to the error command
-    if(args->err.origin && args != args->err.origin) {
-        fprintf(stream, "%s ", argv[0]);
-        args_curr = args->err.origin->command_parent;
-        while(args_curr && args_curr->command_parent) {
-            printf("%s ", args_curr->name);
-            args_curr = args_curr->command_parent;
-        }
-        args_curr = args->err.origin;
-    }
-    // print general descriptor
-    if(hh_darrlen(args_curr->commands) == 1) {
-        fprintf(stream, "%s ", (args_curr->command_parent == NULL) ? argv[0] : args_curr->name);
-        HH_H__args_print_usage_synopsis(args_curr->commands, stream, argc - 1, argv + 1);
-    } else if(hh_darrlen(args_curr->commands) > 1) {
-        if(args_curr->command_parent == NULL) fprintf(stream, "%s <command> ", argv[0]);
-        else fprintf(stream, "%s <subcommand(s)> ", args_curr->name);
-    } else fprintf(stream, "%s ", args_curr->name);
-    // print options after subcommands
-    struct HH_H__args_entry_t* entry;
-    for(size_t i = 0, j = hh_darrlen(args_curr->entry_list); i < j; ++i) {
-        entry = (struct HH_H__args_entry_t*) args_curr->entry_list[i];
+    (void) argc;
+    const hh_args_t* target = args->command_parsed ? args->command_parsed : args;
+    const hh_args_t* root = target;
+    while(root->command_parent != NULL) root = root->command_parent;
+    fprintf(stream, "%s ", argv[0]);
+    uintptr_t* stack = NULL;
+    for(const hh_args_t* n = target; n && n != root; n = n->command_parent)
+        hh_darrput(stack, (uintptr_t) n);
+    for(size_t i = hh_darrlen(stack); i-- > 0;) 
+        fprintf(stream, "%s ", ((const hh_args_t*) stack[i])->name);
+    if(hh_darrlen(target->commands) > 1) 
+        fprintf(stream, "<%s> ", (target->command_parent == NULL) ? "command" : "subcommand(s)");
+    for (size_t j = 0; j < hh_darrlen(root->entry_list); ++j) {
+        struct HH_H__args_entry_t* entry =
+            (struct HH_H__args_entry_t*) root->entry_list[j];
         HH_H__args_print_usage_helper(entry, stream, NULL, 0);
     }
-    if(args->command_parent == NULL) fprintf(stream, "\n");
+    for (size_t i = hh_darrlen(stack); i-- > 0;) {
+        const hh_args_t* cmd = (const hh_args_t*) stack[i];
+        for (size_t j = 0; j < hh_darrlen(cmd->entry_list); ++j) {
+            struct HH_H__args_entry_t* entry =
+                (struct HH_H__args_entry_t*) cmd->entry_list[j];
+            HH_H__args_print_usage_helper(entry, stream, NULL, 0);
+        }
+    }
+    fprintf(stream, "\n");
+    hh_darrfree(stack);
 }
 
+// TODO: replace unicode with escape sequences
+// TODO: not sure that I like how required flags are indented
 void
 HH_H__args_print_usage_opt(const hh_args_t* args, FILE* stream, size_t indent, _Bool* last, size_t* measure, size_t align) {
     size_t len_cmds = hh_darrlen(args->commands);
@@ -1621,10 +1671,12 @@ hh_args_print_usage(const hh_args_t* args, FILE* stream, int argc, char* argv[])
     printf("\n");
     _Bool* last = NULL;
     size_t measure = 0;
-    HH_H__args_print_usage_opt(args, NULL, 0, last, &measure, 0);
+    const hh_args_t* root = args;
+    while(root->command_parent != NULL) root = root->command_parent;
+    HH_H__args_print_usage_opt(root, NULL, 0, last, &measure, 0);
     measure++;
     printf("ARGUMENT%*sDESCRIPTION\n", (int) measure - 7, "");
-    HH_H__args_print_usage_opt(args, stream, 0, last, NULL, measure);
+    HH_H__args_print_usage_opt(root, stream, 0, last, NULL, measure);
     hh_darrfree(last);
 }
 
