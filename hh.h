@@ -1543,9 +1543,9 @@ hh_args_free(hh_args_t* args) {
         free(entry->val);
     }
     hh_darrfree(args->entry_list);
-    if(args->command_parent == NULL) hh_arena_free(&args->entries);
     for(i = 0; i < hh_darrlen(args->commands); ++i) hh_args_free(&args->commands[i]);
     hh_darrfree(args->commands);
+    if(args->command_parent == NULL) hh_arena_free(&args->entries);
 }
 
 #define hh_args_usage_printf(...) if(measure == NULL) fprintf(stream, __VA_ARGS__)
@@ -1597,16 +1597,15 @@ hh_args_print_synopsis(const hh_args_t* args, FILE* stream, int argc, char* argv
         fprintf(stream, "%s ", ((const hh_args_t*) stack[i])->name);
     if(hh_darrlen(target->commands) > 1) 
         fprintf(stream, "<%s> ", (target->command_parent == NULL) ? "command" : "subcommand(s)");
-    for (size_t j = 0; j < hh_darrlen(root->entry_list); ++j) {
-        struct HH_H__args_entry_t* entry =
-            (struct HH_H__args_entry_t*) root->entry_list[j];
+    struct HH_H__args_entry_t* entry;
+    for(size_t j = 0; j < hh_darrlen(root->entry_list); ++j) {
+        entry = (struct HH_H__args_entry_t*) root->entry_list[j];
         hh_args_print_entry_usage(entry, stream, NULL, 0);
     }
     for (size_t i = hh_darrlen(stack); i-- > 0;) {
         const hh_args_t* cmd = (const hh_args_t*) stack[i];
         for (size_t j = 0; j < hh_darrlen(cmd->entry_list); ++j) {
-            struct HH_H__args_entry_t* entry =
-                (struct HH_H__args_entry_t*) cmd->entry_list[j];
+            entry = (struct HH_H__args_entry_t*) cmd->entry_list[j];
             hh_args_print_entry_usage(entry, stream, NULL, 0);
         }
     }
