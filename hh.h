@@ -1162,20 +1162,21 @@ hh_args_opt_exists(hh_args_t* args, char flag, const char* flag_long) {
 static struct HH_H__args_entry_t*
 hh_args_add_help(hh_args_t* args) {
     static const size_t idx = 0;
-    if(!hh_map_insert(&args->flags, "h", 1, &idx, sizeof(size_t))) return NULL;
-    if(!hh_map_insert_with_cstr_key(&args->flags_long, "help", &idx, sizeof(size_t))) return NULL;
+    if(!hh_map_insert(&args->flags, "h", 1, &idx, sizeof(size_t))) goto fail;
+    if(!hh_map_insert_with_cstr_key(&args->flags_long, "help", &idx, sizeof(size_t))) goto fail;
     struct HH_H__args_entry_t* entry = hh_arena_alloc(&args->entries, sizeof(struct HH_H__args_entry_t));
-    if(entry == NULL) return NULL;
+    if(entry == NULL) goto fail;
     entry->desc = "show this help menu";
     entry->flag = '\0';
     entry->flag_long = "help";
     entry->type = HH_ARGS_BOOL;
     entry->val = calloc(1, sizeof(entry->val[0]));
-    if(entry->val == NULL) return NULL;
-    // TODO: I'm mixing asserts with error returns here
-    // consider a variant of put that is failable (or make it failable by default)
+    if(entry->val == NULL) goto fail;
     hh_darrput(args->entry_list, (uintptr_t) entry);
     return entry;
+fail:
+    HH_ERR("Invalid hh_args_t configuration. Failed to add flag: [-h, --help]");
+    exit(1);
 }
 
 const void*
@@ -1190,7 +1191,6 @@ HH_H__args_add_opt(hh_args_t* args, hh_args_opt_t type, hh_args_opt_cfg cfg) {
         // add help menu to root node
         if(args->command_parent == NULL) {
             args->entry_help = hh_args_add_help(args);
-            HH_ASSERT(args->entry_help != NULL, "Invalid hh_args_t configuration. Failed to add flag: [-h, --help]");
             count++;
         }
     }
@@ -1213,10 +1213,12 @@ HH_H__args_add_opt(hh_args_t* args, hh_args_opt_t type, hh_args_opt_cfg cfg) {
     struct HH_H__args_entry_t* entry;
     entry = hh_arena_alloc(&args_root->entries, sizeof(struct HH_H__args_entry_t));
     // ensure entry was properly allocated
-    // TODO: refactor this into a single assert
-    if(cfg.flag != '\0' && cfg.flag_long == NULL) HH_ASSERT(entry != NULL, "Invalid hh_args_t configuration. Failed to add flag: [-%c]", cfg.flag);
-    else if(cfg.flag == '\0' && cfg.flag_long != NULL) HH_ASSERT(entry != NULL, "Invalid hh_args_t configuration. Failed to add flag: [--%s]", cfg.flag_long);
-    else HH_ASSERT(entry != NULL, "Invalid hh_args_t configuration. Failed to add flag: [-%c, --%s]", cfg.flag, cfg.flag_long);
+    HH_ASSERT(entry != NULL, 
+        "Invalid hh_args_t configuration. Failed to add flag: [-%.*s%s%s]", 
+        (cfg.flag == '\0') ? 0 : 1,
+        (cfg.flag == '\0') ? "" : &cfg.flag,
+        (cfg.flag == '\0') ? "-" : ", --",
+        (cfg.flag == '\0') ? cfg.flag_long : ""); 
     // fill entry fields
     entry->name = cfg.name;
     entry->desc = cfg.desc;
@@ -1613,7 +1615,6 @@ hh_args_print_synopsis(const hh_args_t* args, FILE* stream, int argc, char* argv
     hh_darrfree(stack);
 }
 
-// TODO: replace unicode with escape sequences
 // TODO: not sure that I like how required flags are indented
 static void
 hh_args_print_usage_inner(const hh_args_t* args, FILE* stream, size_t indent, _Bool* last, size_t* measure, size_t align) {
@@ -1626,11 +1627,11 @@ hh_args_print_usage_inner(const hh_args_t* args, FILE* stream, size_t indent, _B
     for(i = 0, len = 0; i < len_args; ++i, len = 0) {
         for(j = 1; j < indent; ++j) {
             last_ensure(j);
-            hh_args_usage_printf(last[j] ? "  " : "│ ");
+            hh_args_usage_printf(last[j] ? "  " : "\u2502 ");
             len += 2;
         }
         if(indent > 0) {
-            hh_args_usage_printf(len_cmds ? "│ " : "  ");
+            hh_args_usage_printf(len_cmds ? "\u2502 " : "  ");
             len += 2;
         }
         entry = (struct HH_H__args_entry_t*) args->entry_list[i];
@@ -1641,13 +1642,13 @@ hh_args_print_usage_inner(const hh_args_t* args, FILE* stream, size_t indent, _B
     for(i = 0, len = 0; i < len_cmds; ++i, len = 0) {
         for(j = 1; j < indent; ++j) {
             last_ensure(j);
-            hh_args_usage_printf(last[j] ? "  " : "│ ");
+            hh_args_usage_printf(last[j] ? "  " : "\u2502 ");
             len += 2;
         }
         if(indent > 0) {
             last_ensure(indent);
             last[indent] = (i + 1 == len_cmds);
-            hh_args_usage_printf(last[indent] ? "└─" : "├─");
+            hh_args_usage_printf(last[indent] ? "\u2514\u2500" : "\u251C\u2500");
             len += 2;
         }
         hh_args_usage_printf("%s", args->commands[i].name);
