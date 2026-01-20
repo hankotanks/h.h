@@ -1155,8 +1155,8 @@ hh_map_free(hh_map_t* map) {
 #define FLAG_FMT_ARGS(opt) \
         (opt.flag == '\0') ? 0 : 1, \
         (opt.flag == '\0') ? "" : &opt.flag, \
-        (opt.flag == '\0') ? "-" : ", --", \
-        (opt.flag == '\0') ? opt.flag_long : ""
+        (opt.flag == '\0') ? "-" : ((opt.flag_long == NULL) ? "" : ", --"), \
+        (opt.flag_long == NULL) ? "" : opt.flag_long
 
 #define FLAG_INVALID "Invalid hh_args_t configuration. "
 
@@ -1241,8 +1241,6 @@ hh_args_add_cmd(hh_args_t* args, const char* name, const char* desc) {
     return child;
 }
 
-#undef FLAG_FMT
-#undef FLAG_FMT_ARGS
 #undef FLAG_INVALID
 
 #define ERR_SET(args, ...) \
@@ -1297,12 +1295,12 @@ hh_args_parse_inner(hh_args_t* args, int argc, char* argv[]) {
         ERR_SET(args, .type = HH__ARGS_ERR_CMD_MISSING);
         return 0;
     }
-    // set the current node as the latest parsed
-    args->data->deepest_parsed = args;
     // invoke subcommands
     _Bool found = !hh_darrlen(args->children);
     for(size_t i = 0; i < hh_darrlen(args->children); ++i) {
         if(strcmp(argv[0], args->children[i].name) != 0) continue;
+        // set the child node as the latest parsed
+        args->data->deepest_parsed = &args->children[i];
         if(!hh_args_parse_inner(&args->children[i], argc - 1, argv + 1)) return 0;
         found = 1;
     }
@@ -1455,8 +1453,48 @@ hh_args_free(hh_args_t* args) {
 
 void
 hh_args_print_error(const hh_args_t* args, FILE* stream) {
-    (void) args;
-    (void) stream;
+    // data->error.type
+    fprintf(stream, "data->error.type: ");
+    switch(args->data->error.type) {
+    case HH__ARGS_ERR_NONE:
+        fprintf(stream, "HH__ARGS_ERR_NONE\n"); 
+        break;
+    case HH__ARGS_ERR_CMD_MISSING: 
+        fprintf(stream, "HH__ARGS_ERR_CMD_MISSING\n"); 
+        break;
+    case HH__ARGS_ERR_CMD_INVALID: 
+        fprintf(stream, "HH__ARGS_ERR_CMD_INVALID\n"); 
+        break;
+    case HH__ARGS_ERR_FLAG_MISSING_VALUE: 
+        fprintf(stream, "HH__ARGS_ERR_FLAG_MISSING_VALUE\n"); 
+        break;
+    case HH__ARGS_ERR_FLAG_INVALID: 
+        fprintf(stream, "HH__ARGS_ERR_FLAG_INVALID\n"); 
+        break;
+    case HH__ARGS_ERR_FLAG_DUPLICATE: 
+        fprintf(stream, "HH__ARGS_ERR_FLAG_DUPLICATE\n"); 
+        break;
+    case HH__ARGS_ERR_FLAG_REQUIRED: 
+        fprintf(stream, "HH__ARGS_ERR_FLAG_REQUIRED\n"); 
+        break;
+    case HH__ARGS_ERR_FLAG_MISMATCH: 
+        fprintf(stream, "HH__ARGS_ERR_FLAG_MISMATCH\n"); 
+        break;
+    default: HH_UNREACHABLE;
+    }
+    fprintf(stream, "\n");
+    // data->error.entry
+    fprintf(stream, "data->error.entry: ");
+    if(args->data->error.entry != NULL) fprintf(stream, FLAG_FMT, FLAG_FMT_ARGS(args->data->error.entry->flag));
+    else fprintf(stream, "(null)");
+    fprintf(stream, "\n");
+    // data->error.extra
+    fprintf(stream, "data->error.extra: %s\n", args->data->error.extra);
+    // data->deepest_parsed
+    fprintf(stream, "data->deepest_parsed: ");
+    if(args->data->deepest_parsed != NULL && args->data->deepest_parsed->name != NULL) fprintf(stream, "%s", args->data->deepest_parsed->name);
+    else fprintf(stream, "(null)");
+    fprintf(stream, "\n");
 }
 
 void
@@ -1466,6 +1504,9 @@ hh_args_print_usage(const hh_args_t* args, FILE* stream, int argc, char* argv[])
     (void) argc;
     (void) argv;
 }
+
+#undef FLAG_FMT
+#undef FLAG_FMT_ARGS
 
 char* 
 hh_read_entire_file(const char* path) {
