@@ -1157,12 +1157,46 @@ hh_map_free(hh_map_t* map) {
     free(map->buckets);
 }
 
-#define FLAG_FMT "[-%.*s%s%s]"
-#define FLAG_FMT_ARGS(opt) \
-        (opt.flag == '\0') ? 0 : 1, \
-        (opt.flag == '\0') ? "" : &opt.flag, \
-        (opt.flag == '\0') ? "-" : ((opt.flag_long == NULL) ? "" : ", --"), \
-        (opt.flag_long == NULL) ? "" : opt.flag_long
+static const char*
+hh_flag_value_name(hh_flag_opt opt, const hh_flag_type* type) {
+    if(type == NULL) return NULL;
+    HH_ASSERT_UNREACHABLE(opt.name == NULL || type != HH_FLAG_BOOL);
+    if(opt.name != NULL) return opt.name;
+    switch(*type) {
+    case HH_FLAG_BOOL:  return NULL;
+    case HH_FLAG_CSTR:  return "string";
+    case HH_FLAG_PATH:  return "path";
+    case HH_FLAG_DBL:   return "number";
+    case HH_FLAG_LONG:  return "int";
+    case HH_FLAG_ULONG: return "uint";
+    default: HH_UNREACHABLE;
+    }
+    return NULL;
+}
+
+#define FLAG_FMT "%s-%s%.*s%s%s%s%s%s%s"
+#define FLAG_FMT_ARGS(opt, type) \
+        ((opt).required) ? "" : "[", \
+        "", \
+        ((opt).flag == '\0') ? 0 : 1, \
+        ((opt).flag == '\0') ? "" : &(opt).flag, \
+        ((opt).flag == '\0') ? "-" : (((opt).flag_long == NULL) ? "" : ", --"), \
+        ((opt).flag_long == NULL) ? "" : (opt).flag_long, \
+        ((type) == NULL || *((hh_flag_type*) (type)) == HH_FLAG_BOOL) ? "" : " <", \
+        ((type) == NULL || *((hh_flag_type*) (type)) == HH_FLAG_BOOL) ? "" : hh_flag_value_name(opt, type), \
+        ((type) == NULL || *((hh_flag_type*) (type)) == HH_FLAG_BOOL) ? "" : ">", \
+        ((opt).required) ? "" : "]"
+#define FLAG_FMT_ARGS_SHORT(opt, type) \
+        ((opt).required) ? "" : "[", \
+        ((opt).flag == '\0') ? "-" : "", \
+        ((opt).flag == '\0') ? ((int) strlen((opt).flag_long)) : 1, \
+        ((opt).flag == '\0') ? (opt).flag_long : &(opt).flag, \
+        "", \
+        "", \
+        ((type) == NULL || *((hh_flag_type*) (type)) == HH_FLAG_BOOL) ? "" : " <", \
+        ((type) == NULL || *((hh_flag_type*) (type)) == HH_FLAG_BOOL) ? "" : hh_flag_value_name(opt, type), \
+        ((type) == NULL || *((hh_flag_type*) (type)) == HH_FLAG_BOOL) ? "" : ">", \
+        ((opt).required) ? "" : "]"
 
 #define FLAG_INVALID "Invalid hh_args_t configuration. "
 
@@ -1174,16 +1208,16 @@ hh_args_data_add_flag(struct HH__args_data* data, hh_flag_type type, hh_flag_opt
     // ensure flag and flag_long don't already exist
     if(opt.flag != '\0')
         HH_ASSERT(!hh_map_get_val(&data->flags, &opt.flag, 1), 
-            FLAG_INVALID "Flag already added: " FLAG_FMT, FLAG_FMT_ARGS(opt));
+            FLAG_INVALID "Flag '" FLAG_FMT "' already added", FLAG_FMT_ARGS(opt, NULL));
     if(opt.flag_long != NULL)
         HH_ASSERT(!hh_map_get_val_with_cstr_key(&data->flags_long, opt.flag_long),
-            FLAG_INVALID "Long flag already added: " FLAG_FMT, FLAG_FMT_ARGS(opt));
+            FLAG_INVALID "Long flag '" FLAG_FMT "' already added", FLAG_FMT_ARGS(opt, NULL));
     // provided 'name' to boolean
     if(type == HH_FLAG_BOOL) {
         HH_ASSERT(opt.name == NULL, 
-            FLAG_INVALID "Provided value name to boolean flag: " FLAG_FMT, FLAG_FMT_ARGS(opt));
+            FLAG_INVALID "Provided value name to boolean flag '" FLAG_FMT "'", FLAG_FMT_ARGS(opt, NULL));
         HH_ASSERT(!opt.required, 
-            FLAG_INVALID "Boolean flags can't be required: " FLAG_FMT, FLAG_FMT_ARGS(opt));
+            FLAG_INVALID "Boolean flag '" FLAG_FMT "' can't be required: ", FLAG_FMT_ARGS(opt, NULL));
     }
     // allocate
     struct HH__args_entry* entry = hh_arena_alloc(&data->entries, sizeof(*entry));
@@ -1191,10 +1225,10 @@ hh_args_data_add_flag(struct HH__args_data* data, hh_flag_type type, hh_flag_opt
     // insert into hashmaps
     if(opt.flag != '\0')
         HH_ASSERT(hh_map_insert(&data->flags, &opt.flag, 1, &entry, sizeof(uintptr_t)), 
-            FLAG_INVALID "Failed to add flag to hh_args_t: " FLAG_FMT, FLAG_FMT_ARGS(opt));
+            FLAG_INVALID "Failed to add flag '" FLAG_FMT "' to hh_args_t", FLAG_FMT_ARGS(opt, NULL));
     if(opt.flag_long != NULL)
         HH_ASSERT(hh_map_insert_with_cstr_key(&data->flags_long, opt.flag_long, &entry, sizeof(uintptr_t)),
-            FLAG_INVALID "Failed to add long flag to hh_args_t: " FLAG_FMT, FLAG_FMT_ARGS(opt));
+            FLAG_INVALID "Failed to add long flag '" FLAG_FMT "' to hh_args_t: ", FLAG_FMT_ARGS(opt, NULL));
     entry->flag = opt;
     entry->type = type;
     return entry;
@@ -1213,7 +1247,7 @@ hh_args_data_init(void) {
         .desc = "show this help menu" 
     };
     data->entry_help = hh_args_data_add_flag(data, HH_FLAG_BOOL, opt);
-    HH_ASSERT(data->entry_help != NULL, "Failed to add flag: " FLAG_FMT, FLAG_FMT_ARGS(opt));
+    HH_ASSERT(data->entry_help != NULL, "Failed to add flag '" FLAG_FMT "'", FLAG_FMT_ARGS(opt, NULL));
     return data;
 }
 
@@ -1551,98 +1585,81 @@ hh_args_print_error(const hh_args_t* args, FILE* stream) {
         break;
     case HH__ARGS_ERR_FLAG_MISSING_VALUE:
         HH_ASSERT_UNREACHABLE(err->entry != NULL);
-        fprintf(stream, "Flag " FLAG_FMT " is missing a required value", 
-            FLAG_FMT_ARGS(err->entry->flag));
+        fprintf(stream, "Flag '" FLAG_FMT "' is missing a required value", 
+            FLAG_FMT_ARGS(err->entry->flag, &err->entry->type));
         break;
     case HH__ARGS_ERR_FLAG_INVALID:
         HH_ASSERT_UNREACHABLE(err->entry != NULL);
-        fprintf(stream, "Flag " FLAG_FMT " received an invalid value: %s", 
-            FLAG_FMT_ARGS(err->entry->flag), err->extra);
+        fprintf(stream, "Flag '" FLAG_FMT "' received an invalid value: %s", 
+            FLAG_FMT_ARGS(err->entry->flag, &err->entry->type), err->extra);
         break;
     case HH__ARGS_ERR_FLAG_DUPLICATE:
         HH_ASSERT_UNREACHABLE(err->entry != NULL);
-        fprintf(stream, "Flag " FLAG_FMT " is passed more than once", 
-            FLAG_FMT_ARGS(err->entry->flag));
+        fprintf(stream, "Flag '" FLAG_FMT "' is passed more than once", 
+            FLAG_FMT_ARGS(err->entry->flag, &err->entry->type));
         break;
     case HH__ARGS_ERR_FLAG_REQUIRED:
         HH_ASSERT_UNREACHABLE(err->entry != NULL);
-        fprintf(stream, "Required flag " FLAG_FMT " is missing", 
-            FLAG_FMT_ARGS(err->entry->flag));
+        fprintf(stream, "Required flag '" FLAG_FMT "' is missing", 
+            FLAG_FMT_ARGS(err->entry->flag, &err->entry->type));
         break;
     case HH__ARGS_ERR_FLAG_MISMATCH:
         HH_ASSERT_UNREACHABLE(origin->parent != NULL);
         HH_ASSERT_UNREACHABLE(origin->name != NULL);
-        fprintf(stream, "Flag " FLAG_FMT " not supported by provided '%s' %s", 
-            FLAG_FMT_ARGS(err->entry->flag),
+        fprintf(stream, "Flag '" FLAG_FMT "' not supported by provided '%s' %s", 
+            FLAG_FMT_ARGS(err->entry->flag, &err->entry->type),
             origin->name, origin->parent->parent ? "subcommand" : "command");
         break;
     default: HH_UNREACHABLE;
     }
 }
 
-#define fprintf_(...) if(padding > 0) fprintf(stream, __VA_ARGS__)
+#undef FLAG_FMT_ARGS
 
 static size_t
-hh_args_print_usage_flag(hh_flag_type type, hh_flag_opt flag, FILE* stream, size_t padding) {
+hh_flag_width(const struct HH__args_entry* entry) {
     size_t col = 0;
-    if(!flag.required) {
-        fprintf_("[");
-        col++;
+    if(!entry->flag.required) col += 2;
+    col += 2;
+    if(entry->flag.flag == '\0') {
+        HH_ASSERT_UNREACHABLE(entry->flag.flag_long != NULL);
+        col += strlen(entry->flag.flag_long);
     }
-    if(flag.flag != '\0') {
-        fprintf_("-%c", flag.flag);
-        col += 2;
-    } else {
-        fprintf_("--%s", flag.flag_long);
-        col += 2 + strlen(flag.flag_long);
-    }
-    const char* name = flag.name;
-    if(name == NULL) {
-        switch(type) {
-        case HH_FLAG_BOOL:  break;
-        case HH_FLAG_CSTR:  name = "string"; break;
-        case HH_FLAG_PATH:  name = "path";   break;
-        case HH_FLAG_DBL:   name = "number"; break;
-        case HH_FLAG_LONG:  name = "int";    break;
-        case HH_FLAG_ULONG: name = "uint";   break;
-        default: HH_UNREACHABLE;
-        }
-    }
-    if(name != NULL) {
-        fprintf_(" <%s>", name);
-        col += 3 + strlen(name);
-    }
-    if(!flag.required) {
-        fprintf_("]");
-        col++;
-    }
+    const char* name = hh_flag_value_name(entry->flag, &entry->type);
+    if(name != NULL) col += 3 + strlen(name);
     return col;
 }
+
+#define USAGE_OUT(...) if(padding > 0) fprintf(stream, __VA_ARGS__)
 
 static size_t
 hh_args_print_usage_entry(const struct HH__args_entry* entry, FILE* stream, 
     _Bool* levels, size_t padding) {
     size_t col = 0;
     for(size_t i = 0; i < hh_darrlen(levels); ++i) {
-        fprintf_("%s%*s", levels[i] ? "│" : " ", HH_ARGS_USAGE_INDENT - 2, "");
+        USAGE_OUT("%s%*s", levels[i] ? "│" : " ", HH_ARGS_USAGE_INDENT - 2, "");
         col += HH_ARGS_USAGE_INDENT - 1;
     }
-    col += hh_args_print_usage_flag(entry->type, entry->flag, stream, padding);
+    USAGE_OUT(FLAG_FMT, FLAG_FMT_ARGS_SHORT(entry->flag, &entry->type));
+    col += hh_flag_width(entry);
     HH_ASSERT_UNREACHABLE(padding == 0 || col <= padding);
-    fprintf_("%*s", (int) (padding - col - 1), "");
+    USAGE_OUT("%*s", (int) (padding - col - 1), "");
     if(entry->flag.desc != NULL) {
-        fprintf_("%s", entry->flag.desc);
+        USAGE_OUT("%s", entry->flag.desc);
         if(entry->flag.flag != '\0' && entry->flag.flag_long != NULL) {
-            fprintf_(" (alt: ");
-            if(!entry->flag.required) fprintf_("["); 
-            fprintf_("--%s", entry->flag.flag_long);
-            if(!entry->flag.required) fprintf_("]"); 
-            fprintf_(")"); 
+            USAGE_OUT(" (alt: ");
+            if(!entry->flag.required) USAGE_OUT("["); 
+            USAGE_OUT("--%s", entry->flag.flag_long);
+            if(!entry->flag.required) USAGE_OUT("]"); 
+            USAGE_OUT(")"); 
         }
     }
-    fprintf_("\n");
+    USAGE_OUT("\n");
     return col;
 }
+
+#undef FLAG_FMT
+#undef FLAG_FMT_ARGS_SHORT
 
 static size_t
 hh_args_print_usage_inner(const hh_args_t* args, FILE* stream,
@@ -1650,27 +1667,27 @@ hh_args_print_usage_inner(const hh_args_t* args, FILE* stream,
     HH_ASSERT_UNREACHABLE(HH_ARGS_USAGE_INDENT > 2);
     size_t col = 0;
     for(size_t i = 0; i + 1 < hh_darrlen(*levels); ++i) {
-        fprintf_("%s%*s", (*levels)[i] ? "│" : " ", HH_ARGS_USAGE_INDENT - 2, "");
+        USAGE_OUT("%s%*s", (*levels)[i] ? "│" : " ", HH_ARGS_USAGE_INDENT - 2, "");
         col += HH_ARGS_USAGE_INDENT - 1;
     }
     if(args->parent != NULL) {
-        fprintf_("%s", last ? "└" : "├");
-        for(size_t i = 0; i < HH_ARGS_USAGE_INDENT - 2; ++i) fprintf_("─");
-        fprintf_("%s", args->name);
+        USAGE_OUT("%s", last ? "└" : "├");
+        for(size_t i = 0; i < HH_ARGS_USAGE_INDENT - 2; ++i) USAGE_OUT("─");
+        USAGE_OUT("%s", args->name);
         col += HH_ARGS_USAGE_INDENT + strlen(args->name);
     } else {
         const char* exe = hh_path_name(argv[0]);
-        fprintf_("./%s", exe);
+        USAGE_OUT("./%s", exe);
         col += 2 + strlen(exe);
     }
     // print description aligned to the second column
     HH_ASSERT_UNREACHABLE(padding == 0 || col <= padding);
     if(args->desc != NULL) {
-        fprintf_("%*s%s", (int) (padding - col), "", args->desc);
+        USAGE_OUT("%*s%s", (int) (padding - col), "", args->desc);
     } else if(args->parent == NULL) {
-        fprintf_("%*sDESCRIPTION", (int) (padding - col - 1), "");
+        USAGE_OUT("%*sDESCRIPTION", (int) (padding - col - 1), "");
     }
-    fprintf_("\n");
+    USAGE_OUT("\n");
     // print flags
     hh_darrput(*levels, hh_darrlen(args->children) != 0);
     const struct HH__args_entry* entry;
@@ -1691,7 +1708,7 @@ hh_args_print_usage_inner(const hh_args_t* args, FILE* stream,
     return col;
 }
 
-#undef fprintf_
+#undef USAGE_OUT
 
 void
 hh_args_print_usage(const hh_args_t* args, FILE* stream, int argc, char* argv[]) {
@@ -1705,9 +1722,6 @@ hh_args_print_usage(const hh_args_t* args, FILE* stream, int argc, char* argv[])
         &levels, 1, padding + HH_ARGS_USAGE_INDENT * 2);
     hh_darrfree(levels);
 }
-
-#undef FLAG_FMT
-#undef FLAG_FMT_ARGS
 
 char* 
 hh_read_entire_file(const char* path) {
