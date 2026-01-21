@@ -4,13 +4,6 @@
 
 #include <stdint.h>
 
-void
-test_darr_print(char** arr) {
-    printf("\"");
-    for(size_t i = 0; i < darrlen(arr); ++i) printf("%s ", arr[i]);
-    printf("\"\n");
-}
-
 int
 main(void) {
     char** arr = NULL, fst[6], snd[6];
@@ -21,8 +14,12 @@ main(void) {
     darrput(arr, "a");
     darrput(arr, "test");
     DBG_BLOCK {
-        printf("Original: arr = ");
-        test_darr_print(arr);
+        LOG_APPEND("Original: arr = \"");
+        for(size_t i = 0; i < darrlen(arr); ++i) {
+            LOG_APPEND("%s", arr[i]);
+            if(i + 1 < darrlen(arr)) LOG_APPEND(" ");
+        }
+        LOG_APPEND("\"");
     }
     // randomly swap a few times
     size_t i, j, k;
@@ -33,8 +30,12 @@ main(void) {
         strcpy(snd, arr[k]);
         darrswap(arr, j, k);
         DBG_BLOCK {
-            printf("Swapped \"%s\" and \"%s\": arr = ", fst, snd);
-            test_darr_print(arr);
+            LOG_APPEND("Swapped \"%s\" and \"%s\": arr = \"", fst, snd);
+            for(size_t i = 0; i < darrlen(arr); ++i) {
+                LOG_APPEND("%s", arr[i]);
+                if(i + 1 < darrlen(arr)) LOG_APPEND(" ");
+            }
+            LOG_APPEND("\"");
         }
         ASSERT(strcmp(fst, arr[k]) == 0 && strcmp(snd, arr[j]) == 0, 
             "hh_darrswap failed to swap elements");
@@ -45,8 +46,12 @@ main(void) {
         k = (size_t) ((uint64_t) rand() * darrlen(arr) / (RAND_MAX + 1ULL));
         char* tmp = darrswapdel(arr, k);
         DBG_BLOCK {
-            printf("Removed \"%s\": len = %zu, idx = %zu, arr = ", tmp, darrlen(arr), k);
-            test_darr_print(arr);
+            LOG_APPEND("Removed \"%s\": len = %zu, idx = %zu, arr = \"", tmp, darrlen(arr), k);
+            for(size_t i = 0; i < darrlen(arr); ++i) {
+                LOG_APPEND("%s", arr[i]);
+                if(i + 1 < darrlen(arr)) LOG_APPEND(" ");
+            }
+            LOG_APPEND("\"");
         }
         ASSERT(darrlen(arr) + 1 == (j - i), 
             "hh_darrswapdel failed to remove element: len = %zu, expected = %zu", darrlen(arr), j - i - 1);

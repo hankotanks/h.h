@@ -1,4 +1,8 @@
-CC ?= cc
+ifeq ($(OS),Windows_NT)
+	CC := gcc
+else
+	CC ?= gcc
+endif
 
 PROJECT_ROOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 

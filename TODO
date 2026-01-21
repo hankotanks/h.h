@@ -1,0 +1,5 @@
+* (de)serialization
+* config file parser ini/toml/yaml
+* hh_path functions for iterating files
+** globbing
+** recursive directory traversal
