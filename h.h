@@ -638,11 +638,11 @@ struct HH__args_data {
 struct HH__args_t {
     const char* name;
     const char* desc;
+    _Bool parsed;
     uintptr_t* entries;
     hh_args_t* children;
     hh_args_t* parent;
     struct HH__args_data* data;
-    _Bool parsed;
 };
 
 const void*
@@ -768,9 +768,9 @@ hh_arena_free(hh_arena* arena) {
 
 char* 
 hh_path_alloc(const char *raw) {
-    char* raw_abs = NULL;
     char* path = NULL;
 #ifdef _WIN32
+    char* raw_abs = NULL;
     DWORD len_win = GetFullPathNameA(raw, 0, NULL, NULL);
     if(len_win == 0) return NULL;
     raw_abs = malloc(len_win);
@@ -781,26 +781,39 @@ hh_path_alloc(const char *raw) {
     }
     if(raw_abs[0] >= 'a' && raw_abs[0] <= 'z' && raw_abs[1] == ':')
         raw_abs[0] -= ('a' - 'A');
-#else
-    raw_abs = realpath(raw, NULL);
-    if(raw_abs == NULL) return NULL;
-#endif
     hh_darrputstr(path, raw_abs);
     free(raw_abs);
-    if(path == NULL) return NULL;
-    for(size_t i = 0; path[i]; i++) if(path[i] == '\\') path[i] = '/';
+#else // _WIN32
+    char* cmd = NULL;
+    hh_darrputstr(cmd, "readlink -m ");
+    hh_darrputstr(cmd, raw);
+    FILE *fp = popen(cmd, "r");
+    if(fp == NULL) {
+        perror("popen");
+        return NULL;
+    }
+    hh_darrfree(cmd);
+    int ch;
+    while((ch = getc(fp)) != EOF && ch != '\n') 
+        hh_darrput(path, (char) ch);
+    hh_darrput(path, '\0');
+    pclose(fp);
+#endif // not _WIN32
     // length of root path is platform-dependent
 #ifdef _WIN32
-    size_t len_root = 3;
+#define HH__PATH_ROOT_LEN 3
 #else
-    size_t len_root = 1;
+#define HH__PATH_ROOT_LEN 1
 #endif
+    if(path == NULL || hh_darrlen(path) <= HH__PATH_ROOT_LEN) return NULL;
+    for(size_t i = 0; path[i]; i++) if(path[i] == '\\') path[i] = '/';
     size_t len = hh_darrlen(path);
-    if(len > (len_root + 1) && path[len - 2] == '/' && path[len - 1] == '\0') {
+    if(len > (HH__PATH_ROOT_LEN + 1) && path[len - 2] == '/' && path[len - 1] == '\0') {
         path[len - 2] = '\0';
         hh_darrheader(path)->len -= 1;
     }
     return path;
+#undef HH__PATH_ROOT_LEN
 }
 
 _Bool

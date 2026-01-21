@@ -1,6 +1,6 @@
 #define HH_IMPLEMENTATION
 #define HH_STRIP_PREFIXES
-#include "hh.h"
+#include "h.h"
 
 int main(void) {
     int test[10];
