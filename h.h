@@ -267,38 +267,50 @@ hh_edition_supported(hh_edition_t ed);
 // compile time checking, with identical logic to hh_edition_supported above
 #define HH_EDITION_SUPPORTED(ed) (HH_EDITION >= (ed))
 
-// represents a non-owning view into a char buffer
+// hh_span_t is a string-view interface
+// intended for parsing
 typedef struct {
-    const char* ptr;
-    const char* delim;
-    size_t len;
-    size_t skips;
+    char* ptr;
+    char* end;
 } hh_span_t;
 
-// initialize a span and advance to the first token
-// NOTE: the delimiter can be changed at any point without causing issues
-_Bool
-hh_span_init(hh_span_t* span, const char* ptr, const char* delim);
-// advances the span to the start of the next token
-// returns truthy unless the end of the buffer has been reached 
-// and no more tokens remain
-// delim represents the expected dividers between tokens (excluding whitespace)
-_Bool
-hh_span_next(hh_span_t* span);
-// advance to the next line, skipping all remaining tokens
-_Bool
-hh_span_next_line(hh_span_t* span);
-// returns true if the span's current token equals `other`
-_Bool
-hh_span_equals(const hh_span_t span, const char* other);
-// parse a given type from the span
-// does not advance to the next token
-_Bool
-hh_span_parse(const hh_span_t* span, const char* fmt, void* out);
-// same as above, but advances the span ot the next token
-// so hh_span_parse_next can be called in succession
-_Bool
-hh_span_parse_next(hh_span_t* span, const char* fmt, void* out);
+// options for the hh_span_next family of functions/macros
+// delim: the separator sequence used to split tokens
+// delim_as_set: treat `delim` as a set of possible delimiters rather than a sequence
+// eol: treat '\n' as a valid delimiter
+// trim: trim whitespace around tokens
+typedef struct {
+    const char* delim;
+    _Bool delim_as_set;
+    _Bool eol;
+    _Bool trim;
+} hh_span_opt;
+
+// returns the length of the span
+#define hh_span_len(span) (((span).ptr != NULL && (span).end != NULL) ? ((span).end - (span).ptr) : 0)
+
+// format specifier and arg macro for span's
+// printf(hh_span_fmt "\n", hh_span_fmt_args(span));
+#define hh_span_fmt "%.*s"
+#define hh_span_fmt_args(span) ((int) hh_span_len(span)), ((span).ptr)
+
+// creates a stack-allocated span from a null-terminated cstr
+// the span does NOT contain the null-terminator
+hh_span_t
+hh_span(char* contents);
+
+// grabs the next token from the span
+#define hh_span_next(span, ...) hh_span_next_opt((span), (hh_span_opt) { __VA_ARGS__ })
+
+// parsing macros
+// accepts the same optional arguments as hh_span_next,
+// just parses the result afterwards
+// if any stage of the parsing fails, `span` is rewound
+// if the failure occurred during hh_span_next, `err` = `span`
+// if it occurred during parsing, it is set to the result of hh_span_next
+#define hh_span_next_lf(span, err, ...) hh_span_next_opt_lf((span), (hh_span_opt) { __VA_ARGS__ }, (err))
+#define hh_span_next_ld(span, err, ...) hh_span_next_opt_ld((span), (hh_span_opt) { __VA_ARGS__ }, (err))
+#define hh_span_next_zu(span, err, ...) hh_span_next_opt_zu((span), (hh_span_opt) { __VA_ARGS__ }, (err))
 
 // templates for custom key hashing and comparator functions
 typedef size_t (*hh_map_hash_f)(const void* key, size_t size_key);
@@ -559,11 +571,22 @@ HH__path_join(char* path, ...);
 #endif // __STDC_VERSION__
 #endif // __STD__
 
-// size of the span format specifier buffer
-// should not have to modify
-#ifndef HH_SPAN_BUF_LEN
-#define HH_SPAN_BUF_LEN 32
-#endif // not HH_SPAN_BUF_LEN
+// if the following is defined
+// hh_span_next_lf, hh_span_next_ld, hh_span_next_zu, etc
+// will return huge values on failure.
+// this is included solely as a diagnostic
+// #define HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
+
+// underlying function behind hh_span_next
+hh_span_t
+hh_span_next_opt(hh_span_t* s, hh_span_opt opt);
+// underlying functions behind hh_span_next_lf, hh_span_next_ld, hh_span_next_zu, etc
+double
+hh_span_next_opt_lf(hh_span_t* span, hh_span_opt opt, hh_span_t* err);
+long
+hh_span_next_opt_ld(hh_span_t* span, hh_span_opt opt, hh_span_t* err);
+size_t
+hh_span_next_opt_zu(hh_span_t* span, hh_span_opt opt, hh_span_t* err);
 
 // NetBSD: getline.c,v 1.2 2014/09/16 17:23:50 christos Exp
 ptrdiff_t // NO PREFIX STRIPPING
@@ -656,6 +679,11 @@ HH__args_add_flag(hh_args_t* args, hh_flag_type type, hh_flag_opt opt);
 #include <errno.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#ifdef HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
+#include <float.h>
+#include <math.h>
+#include <limits.h>
+#endif // HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
 
 // platform-dependent includes
 #ifdef _WIN32
@@ -904,79 +932,123 @@ hh_edition_supported(hh_edition_t ed) {
     return HH_EDITION >= ed;
 }
 
-_Bool
-hh_span_init(hh_span_t* span, const char* ptr, const char* delim) {
-    span->ptr = ptr;
-    span->delim = delim;
-    span->len = 0;
-    span->skips = 0;
-    while(span->ptr && strchr(" \t\r", span->ptr[0])) span->ptr++;
-    return hh_span_next(span);
+hh_span_t
+hh_span(char* str) {
+    if(str == NULL) return (hh_span_t) {0};
+    return (hh_span_t) { .ptr = str, .end = str + strlen(str) };
 }
 
-_Bool
-hh_span_next(hh_span_t* span) {
-    const char* ptr = span->ptr + span->len + span->skips;
-    span->len = 0;
-    span->skips = 0;
-    span->ptr = ptr;
-    if(!*ptr) return 0;
-    size_t delim_len = span->delim ? strlen(span->delim) : 0;
-    if(span->delim) {
-        while(*ptr && strncmp(ptr, span->delim, delim_len) != 0 && !strchr(" \t\r\n", *ptr)) ++ptr;
-    } else while(*ptr && !strchr(" \t\r\n", *ptr)) ++ptr;
-    // ptr now is at the end of the token, pointing to either whitespace or the start of the delimiter
-    span->len = (size_t) (ptr - span->ptr);
-    if(span->len == 0 && span->delim == NULL) return 0;
-    while(*ptr && strchr(" \t\r", *ptr)) ++ptr;
-    if(*ptr == '\0') goto finish;
-    // either at the delim or a newline
-    if(*ptr == '\n') {
-        ++ptr;
-        goto finish;
-    }
-    // we are 100% pointing at a delim if there is one
-    if(span->delim) {
-        if(strncmp(ptr, span->delim, delim_len) != 0) return 0;
-        ptr += delim_len;
-        while(*ptr && strchr(" \t\r\n", *ptr)) ++ptr;
+hh_span_t
+hh_span_next_opt(hh_span_t* span, hh_span_opt opt) {
+    size_t delim_count;
+    _Bool  delim_match;
+    hh_span_t token = {0};
+    for(char* cur = span->ptr, *cur_adv; cur <= span->end; ++cur) {
+        if(opt.delim != NULL) {
+            delim_match = (!opt.eol && cur + 1 == span->end);
+            if(opt.delim_as_set) {
+                delim_count = strlen(opt.delim);
+                delim_match |= (strncmp(cur, opt.delim, delim_count) == 0);
+            } else {
+                delim_count = 1;
+                delim_match |= (strchr(opt.delim, cur[0]) != 0);
+            }
+            if(cur + delim_count <= span->end && delim_match) {
+                cur_adv = cur + delim_count;
+                if(opt.trim) {
+                    --cur;
+                    while(cur > span->ptr && strchr(" \t\r\n", cur[0]) != 0) --cur;
+                    ++cur;
+                    while(cur_adv <= span->end && strchr(" \t\r\n", cur_adv[0]) != 0) ++cur_adv;
+                }
+                token.ptr = span->ptr;
+                token.end = cur;
+                span->ptr = cur_adv;
+                goto finish;
+            }
+        }
+        if(opt.eol) {
+            if(cur[0] == '\n') { 
+                cur_adv = cur + 1;
+                if(opt.trim) {
+                    while(cur > span->ptr && strchr(" \t\r\n", cur[0]) != 0) --cur;
+                    while(cur_adv <= span->end && strchr(" \t\r\n", cur_adv[0]) != 0) ++cur_adv;
+                }
+                token.ptr = span->ptr;
+                token.end = cur + 1;
+                span->ptr = cur_adv;
+                goto finish;
+            }
+        }
     }
 finish:
-    span->skips = (size_t) (ptr - span->ptr) - span->len;
-    return 1;
+    return token;
 }
 
-_Bool
-hh_span_next_line(hh_span_t* span) {
-    const char* ptr = span->ptr + span->len + span->skips;
-    span->len = 0;
-    span->skips = 0;
-    while(*ptr && *ptr != '\n') ++ptr;
-    if(*ptr == '\n') ++ptr;
-    span->ptr = ptr;
-    if(*ptr == '\0') return 0;
-    return hh_span_next(span);
+#define HH__SPAN_PROLOGUE(err_ret) \
+    if(err != NULL && err->ptr != NULL) return (err_ret); \
+    hh_span_t prev = *span; \
+    hh_span_t token = hh_span_next_opt(span, opt); \
+    if(token.ptr == NULL) { \
+        *err = prev; \
+        return (err_ret); \
+    } \
+    HH_ASSERT_UNREACHABLE(token.end != NULL);
+
+#define HH__SPAN_EPILOGUE(err_ret, err_cond) \
+    if(err_cond) { \
+        *span = prev; \
+        *err = token; \
+        return (err_ret); \
+    }
+
+double
+hh_span_next_opt_lf(hh_span_t* span, hh_span_opt opt, hh_span_t* err) {
+#ifdef HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
+#define HH__SPAN_ERR_RET HUGE_VAL
+#else
+#define HH__SPAN_ERR_RET 0.0
+#endif // HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
+    HH__SPAN_PROLOGUE(HH__SPAN_ERR_RET);
+    char* end;
+    double val = strtod(token.ptr, &end);
+    HH__SPAN_EPILOGUE(HH__SPAN_ERR_RET, end == token.ptr || end != token.end || errno == ERANGE);
+    return val;
+#undef HH__SPAN_ERR_RET
 }
 
-_Bool
-hh_span_equals(const hh_span_t span, const char* other) {
-    size_t len = strlen(other);
-    if(span.len != len) return 0;
-    return strncmp(span.ptr, other, span.len) == 0;
+long
+hh_span_next_opt_ld(hh_span_t* span, hh_span_opt opt, hh_span_t* err) {
+#ifdef HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
+#define HH__SPAN_ERR_RET LONG_MAX
+#else
+#define HH__SPAN_ERR_RET 0
+#endif // HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
+    HH__SPAN_PROLOGUE(HH__SPAN_ERR_RET);
+    char* end;
+    long val = strtol(token.ptr, &end, 10);
+    HH__SPAN_EPILOGUE(HH__SPAN_ERR_RET, end == token.ptr || end != token.end || errno == ERANGE);
+    return val;
+#undef HH__SPAN_ERR_RET
 }
 
-_Bool
-hh_span_parse(const hh_span_t* span, const char* fmt, void* out) {
-    HH_ASSERT(fmt[0] == '%', "Unsupported format specifier [%s].", fmt);
-    static char fmt_buf[HH_SPAN_BUF_LEN + 1];
-    snprintf(fmt_buf, HH_SPAN_BUF_LEN, "%%%llu%s", (unsigned long long) span->len, &fmt[1]);
-    return sscanf(span->ptr, fmt_buf, out);
+size_t
+hh_span_next_opt_zu(hh_span_t* span, hh_span_opt opt, hh_span_t* err) {
+#ifdef HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
+#define HH__SPAN_ERR_RET ULONG_MAX
+#else
+#define HH__SPAN_ERR_RET 0
+#endif // HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
+    HH__SPAN_PROLOGUE(HH__SPAN_ERR_RET);
+    char* end;
+    size_t val = strtoul(token.ptr, &end, 10);
+    HH__SPAN_EPILOGUE(HH__SPAN_ERR_RET, end == token.ptr || end != token.end || errno == ERANGE);
+    return val;
+#undef HH__SPAN_ERR_RET
 }
 
-_Bool
-hh_span_parse_next(hh_span_t* span, const char* fmt, void* out) {
-    return hh_span_parse(span, fmt, out) && hh_span_next(span);
-}
+#undef HH__SPAN_PROLOGUE
+#undef HH__SPAN_EPILOGUE
 
 // adapted from the following link
 // https://gist.github.com/MohamedTaha98/ccdf734f13299efb73ff0b12f7ce429f
@@ -2019,12 +2091,15 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define edition_supported hh_edition_supported
 #define EDITION_SUPPORTED HH_EDITION_SUPPORTED
 #define span_t hh_span_t
-#define span_init hh_span_init
+#define span_opt hh_span_opt
+#define span_len hh_span_len
+#define span_fmt hh_span_fmt
+#define span_fmt_args hh_span_fmt_args
+#define span hh_span
 #define span_next hh_span_next
-#define span_next_line hh_span_next_line
-#define span_parse hh_span_parse
-#define span_parse_next hh_span_parse_next
-#define span_equals hh_span_equals
+#define span_next_lf hh_span_next_lf
+#define span_next_ld hh_span_next_ld
+#define span_next_zu hh_span_next_zu
 #define map_hash_f hh_map_hash_f
 #define map_comp_f hh_map_comp_f
 #define map_free_f hh_map_free_f
