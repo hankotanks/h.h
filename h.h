@@ -287,7 +287,7 @@ typedef struct {
 } hh_span_opt;
 
 // returns the length of the span
-#define hh_span_len(span) (((span).ptr != NULL && (span).end != NULL) ? ((span).end - (span).ptr) : 0)
+#define hh_span_len(span) (((span).ptr != NULL && (span).end != NULL) ? ((size_t) ((span).end - (span).ptr)) : 0)
 
 // format specifier and arg macro for span's
 // printf(hh_span_fmt "\n", hh_span_fmt_args(span));
@@ -938,51 +938,60 @@ hh_span(char* str) {
     return (hh_span_t) { .ptr = str, .end = str + strlen(str) };
 }
 
+size_t
+HH__span_matches(hh_span_t* span, hh_span_opt opt) {
+    if(span->ptr == span->end) return SIZE_MAX;
+    if(opt.eol && span->ptr[0] == '\n') return 1;
+    if(opt.delim == NULL) return 0;
+    if(opt.delim_as_set) {
+        return (strchr(opt.delim, span->ptr[0]) != 0);
+    } else {
+        size_t count;
+        count = strlen(opt.delim);
+        if(span->ptr + count >= span->end) return 0;
+        return (strncmp(span->ptr, opt.delim, count) == 0) ? count : 0;
+    }
+}
+
 hh_span_t
 hh_span_next_opt(hh_span_t* span, hh_span_opt opt) {
-    size_t delim_count;
-    _Bool  delim_match;
-    hh_span_t token = {0};
-    for(char* cur = span->ptr, *cur_adv; cur <= span->end; ++cur) {
-        if(opt.delim != NULL) {
-            delim_match = (!opt.eol && cur + 1 == span->end);
-            if(opt.delim_as_set) {
-                delim_count = strlen(opt.delim);
-                delim_match |= (strncmp(cur, opt.delim, delim_count) == 0);
-            } else {
-                delim_count = 1;
-                delim_match |= (strchr(opt.delim, cur[0]) != 0);
+    const char* whitespace = opt.eol ? " \t\r" : " \t\r\n";
+    hh_span_t temp = { .end = span->end };
+    if(span->ptr == span->end) return temp;
+    if(opt.trim) {
+        while(strchr(whitespace, span->ptr[0]) != 0) ++(span->ptr);
+    }
+    size_t count;
+    for(char* cur = span->ptr, *adv; cur <= span->end; ++cur) {
+        temp.ptr = cur;
+        count = HH__span_matches(&temp, opt);
+        if(count == SIZE_MAX) {
+            if(opt.trim) {
+                --cur;
+                while(cur > span->ptr && strchr(whitespace, cur[0]) != 0) --cur;
+                ++cur;
             }
-            if(cur + delim_count <= span->end && delim_match) {
-                cur_adv = cur + delim_count;
-                if(opt.trim) {
-                    --cur;
-                    while(cur > span->ptr && strchr(" \t\r\n", cur[0]) != 0) --cur;
-                    ++cur;
-                    while(cur_adv <= span->end && strchr(" \t\r\n", cur_adv[0]) != 0) ++cur_adv;
-                }
-                token.ptr = span->ptr;
-                token.end = cur;
-                span->ptr = cur_adv;
-                goto finish;
-            }
+            temp.ptr = span->ptr;
+            temp.end = cur;
+            span->ptr = span->end;
+            return temp;
         }
-        if(opt.eol) {
-            if(cur[0] == '\n') { 
-                cur_adv = cur + 1;
-                if(opt.trim) {
-                    while(cur > span->ptr && strchr(" \t\r\n", cur[0]) != 0) --cur;
-                    while(cur_adv <= span->end && strchr(" \t\r\n", cur_adv[0]) != 0) ++cur_adv;
-                }
-                token.ptr = span->ptr;
-                token.end = cur + 1;
-                span->ptr = cur_adv;
-                goto finish;
+        if(count > 0) {
+            adv = cur + count;
+            if(opt.trim) {
+                --cur;
+                while(cur > span->ptr && strchr(whitespace, cur[0]) != 0) --cur;
+                ++cur;
+                while(adv < span->end && strchr(whitespace, adv[0]) != 0) ++adv;
             }
+            temp.ptr = span->ptr;
+            temp.end = cur;
+            span->ptr = adv;
+            return temp;
         }
     }
-finish:
-    return token;
+    temp.ptr = NULL;
+    return temp;
 }
 
 #define HH__SPAN_PROLOGUE(err_ret) \
@@ -1077,35 +1086,6 @@ HH__map_comp_generic(const hh_map_t* map, const void* key_query, size_t size_key
     return 0;
 }
 
-static _Bool 
-HH__map_replace(hh_map_t* map, const void* key, size_t size_key, const void* val, size_t size_val) {
-    // get the entry, we can only replace if it exists
-    hh_map_entry_t entry = hh_map_get(map, key, size_key);
-    if(entry.val == NULL) return 0;
-    // entry bounds
-    char* entry_begin = (char*) entry.key - sizeof(size_t) * 2;
-    char* entry_val = (char*) entry.val;
-    char* entry_end = entry_val + entry.size_val;
-    size_t idx, len;
-    idx = HH__map_hash_generic(map, entry.key, entry.size_key);
-    // grow array if new entry size is larger
-    if(size_val > entry.size_val) {
-        char* bucket = map->buckets[idx];
-        hh_darradd(map->buckets[idx], size_val - entry.size_val);
-        entry_begin = map->buckets[idx] + (entry_begin - bucket);
-        entry_val = map->buckets[idx] + (entry_val - bucket);
-        entry_end = entry_val + entry.size_val;
-    }
-    // compute length of tail bytes that we need to slide right
-    len = (size_t) ((map->buckets[idx] + hh_darrlen(map->buckets[idx])) - entry_end);
-    memmove(entry_val + size_val, entry_end, len);
-    // update metadata and replace value
-    ((size_t*) entry_begin)[1] = size_val;
-    if(val == NULL) memset(entry_val, 0, size_val);
-    else memcpy(entry_val, val, size_val);
-    return 1;
-}
-
 _Bool
 hh_map_insert(hh_map_t* map, const void* key, size_t size_key, const void* val, size_t size_val) {
     if(map == NULL) return 0;
@@ -1114,7 +1094,8 @@ hh_map_insert(hh_map_t* map, const void* key, size_t size_key, const void* val, 
         map->buckets = calloc(map->bucket_count, sizeof(char*));
         if(map->buckets == NULL) return 0;
         for(size_t i = 0; i < map->bucket_count; ++i) hh_darradd(map->buckets[i], sizeof(size_t) * 2);
-    } else if(HH__map_replace(map, key, size_key, val, size_val)) return 1;
+    }
+    hh_map_remove(map, key, size_key);
     // perform insertion
     size_t idx, len;
     idx = HH__map_hash_generic(map, key, size_key);
@@ -1122,6 +1103,7 @@ hh_map_insert(hh_map_t* map, const void* key, size_t size_key, const void* val, 
     hh_darradd(map->buckets[idx], size_key + size_val + sizeof(size_t) * 2);
     // update entry sizes
     size_t* meta = (((size_t*) (map->buckets[idx] + len)) - 2);
+    HH_ASSERT_UNREACHABLE(meta[0] == 0 && meta[1] == 0);
     *(meta++) = size_key;
     *(meta++) = size_val;
     // copy over entry

@@ -24,6 +24,10 @@ cstr2cstr_dump_buckets(const map_t* map);
 // insert: hello, world
 // insert: hello, world2
 // remove: hello
+// UPDATE: Unsure if this exact issue persists after rewriting hh_span
+// However, see EOF for a dump where a glibc error occurs
+
+#define BUF_LEN 512
 
 int
 main(int argc, char* argv[]) {
@@ -45,27 +49,28 @@ main(int argc, char* argv[]) {
     for(;;) { 
         printf("> ");
         // get line from stdin
-        static char line[512];
-        if(fgets(line, ARR_LEN(line), stdin) == NULL) {
+        static char buf[BUF_LEN];
+        if(fgets(buf, ARR_LEN(buf), stdin) == NULL) {
             printf("\nExiting.\n");
             break;
         }
-        size_t len = strlen(line);
-        if(len > 0 && line[len - 1] == '\n') line[len - 1] = '\0';
+        size_t len = strlen(buf);
+        if(len > 0 && buf[len - 1] == '\n') buf[len - 1] = '\0';
+        span_t line = span(buf);
         // parse the first token (which should be the command)
-        span_t token;
-        if(!span_init(&token, line, ":")) {
+        span_t token = span_next(&line, .delim = ":", .trim = true);
+        if(token.ptr == NULL) {
             ERR("Failed to parse.");
             continue;
         }
         // retrieve command from hashmap
-        op_f op = fp_unwrap(map_get_val(&op_map, token.ptr, token.len), op_f);
+        op_f op = fp_unwrap(map_get_val(&op_map, token.ptr, span_len(token)), op_f);
         if(op == NULL) {
-            ERR("Unrecognized command: %.*s [%zu]", (int) token.len, token.ptr, token.len);
+            ERR("Unrecognized command: " span_fmt " [%zu]", span_fmt_args(token), span_len(token));
             continue;
         }
         // execute the corresponding command
-        if(!(op)(&cstr2cstr, &token)) continue;
+        if(!(op)(&cstr2cstr, &line)) continue;
         // print current state of cstr2cstr
         cstr2cstr_dump_keys(&cstr2cstr);
         cstr2cstr_dump_buckets(&cstr2cstr);
@@ -81,20 +86,22 @@ main(int argc, char* argv[]) {
 
 bool
 op_insert(map_t* map, span_t* token) {
-    token->delim = ",";
-    if(!span_next(token)) {
+    printf("token: len = %zu, token = \"" span_fmt "\"\n", span_len(*token), span_fmt_args(*token));
+    span_t key = span_next(token, .delim = ",", .trim = true);
+    if(key.ptr == NULL) {
         ERR("Failed to parse token.");
         return false;
     }
-    printf("key: len = %zu, token = \"%.*s\"\n", token->len, (int) token->len, token->ptr);
-    span_t val = *token;
-    if(!span_next(&val)) {
+    printf("token: len = %zu, token = \"" span_fmt "\"\n", span_len(*token), span_fmt_args(*token));
+    printf("key: len = %zu, token = \"" span_fmt "\"\n", span_len(key), span_fmt_args(key));
+    span_t val = span_next(token, .eol = true, .trim = true);
+    if(val.ptr == NULL) {
         ERR("Failed to parse token.");
         return false;
     }
-    printf("val: len = %zu, token = \"%.*s\"\n", val.len, (int) val.len, val.ptr);
-    if(!map_insert(map, token->ptr, token->len, val.ptr, val.len)) {
-        ERR("Failed to insert element: (%.*s, %.*s)", (int) token->len, token->ptr, (int) val.len, val.ptr);
+    printf("val: len = %zu, token = \"" span_fmt "\"\n", span_len(val), span_fmt_args(val));
+    if(!map_insert(map, key.ptr, span_len(key), val.ptr, span_len(val))) {
+        ERR("Failed to insert element: (" span_fmt ", " span_fmt ")", span_fmt_args(key), span_fmt_args(val));
         return false;
     }
     return true;
@@ -102,27 +109,29 @@ op_insert(map_t* map, span_t* token) {
 
 bool
 op_remove(map_t* map, span_t* token) {
-    if(!span_next(token)) {
+    span_t key = span_next(token, .eol = true, .trim = true);
+    if(key.ptr == NULL) {
         ERR("Failed to parse token.");
         return false;
     }
-    map_entry_t entry = map_get(map, token->ptr, token->len);
+    map_entry_t entry = map_get(map, key.ptr, span_len(key));
     if(entry.val == NULL) {
-        ERR("Given key was not found: %.*s", (int) token->len, token->ptr);
+        ERR("Given key was not found: " span_fmt, span_fmt_args(key));
         return false;
     }
-    return map_remove(map, token->ptr, token->len);
+    return map_remove(map, key.ptr, span_len(key));
 }
 
 bool
 op_get(map_t* map, span_t* token) {
-    if(!span_next(token)) {
+    span_t key = span_next(token, .eol = true, .trim = true);
+    if(key.ptr == NULL) {
         ERR("Failed to parse token.");
         return false;
     }
-    map_entry_t entry = map_get(map, token->ptr, token->len);
+    map_entry_t entry = map_get(map, key.ptr, span_len(key));
     if(entry.val == NULL) {
-        ERR("Failed to get element: %.*s", (int) token->len, token->ptr);
+        ERR("Failed to get element: " span_fmt, span_fmt_args(key));
         return false;
     }
     printf("found: (%.*s, %.*s)\n", 
@@ -155,3 +164,97 @@ cstr2cstr_dump_buckets(const map_t* map) {
 		printf("\n");
 	}
 }
+
+#if 0
+hank@hank:~/Projects/hh.h/examples$ ./hh_map_shell 
+Usage:
+  > insert: <key>, <value>
+  > remove: <key>
+  > get: <key>
+
+> insert : hello , world
+token: len = 13, token = "hello , world"
+token: len = 5, token = "world"
+key: len = 5, token = "hello"
+val: len = 5, token = "world"
+keys: hello, 
+buckets:
+0: 
+1: (hello, world), 
+2: 
+3: 
+4: 
+5: 
+6: 
+7: 
+> insert : luke,this
+token: len = 9, token = "luke,this"
+token: len = 4, token = "this"
+key: len = 4, token = "luke"
+val: len = 4, token = "this"
+keys: hello, luke, 
+buckets:
+0: 
+1: (hello, world), 
+2: 
+3: 
+4: 
+5: 
+6: (luke, this), 
+7: 
+> insert    
+token: len = 0, token = ""
+ERROR [/home/hank/Projects/hh.h/examples/hh_map_shell.c:91]: Failed to parse token.
+> insert : is , your
+token: len = 9, token = "is , your"
+token: len = 4, token = "your"
+key: len = 2, token = "is"
+val: len = 4, token = "your"
+keys: hello, is, luke, 
+buckets:
+0: 
+1: (hello, world), (is, your), 
+2: 
+3: 
+4: 
+5: 
+6: (luke, this), 
+7: 
+> insert:hello,12310923021312830123712308123120jmidn1m2sn921ms21hs
+token: len = 57, token = "hello,12310923021312830123712308123120jmidn1m2sn921ms21hs"
+token: len = 51, token = "12310923021312830123712308123120jmidn1m2sn921ms21hs"
+key: len = 5, token = "hello"
+val: len = 51, token = "12310923021312830123712308123120jmidn1m2sn921ms21hs"
+keys: hello, is, luke, 
+buckets:
+0: 
+1: (hello, 12310923021312830123712308123120jmidn1m2sn921ms21hs), (is, your), 
+2: 
+3: 
+4: 
+5: 
+6: (luke, this), 
+7: 
+> insert:hello,1
+token: len = 7, token = "hello,1"
+token: len = 1, token = "1"
+key: len = 5, token = "hello"
+val: len = 1, token = "1"
+keys: hello, is, luke, 
+buckets:
+0: 
+1: (hello, 1), (is, your), 
+2: 
+3: 
+4: 
+5: 
+6: (luke, this), 
+7: 
+> insert:father,   speaking
+token: len = 18, token = "father,   speaking"
+token: len = 8, token = "speaking"
+key: len = 6, token = "father"
+val: len = 8, token = "speaking"
+Fatal glibc error: malloc assertion failure in sysmalloc: (old_top == initial_top (av) && old_size == 0) || ((unsigned long) (old_size) >= MINSIZE && prev_inuse (old_top) && ((unsigned long) old_end & (pagesize - 1)) == 0)
+Aborted
+#endif
