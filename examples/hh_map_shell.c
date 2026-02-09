@@ -30,12 +30,12 @@ main(int argc, char* argv[]) {
     map_t op_map = { .bucket_count = 5, 0 };
     map_insert_with_cstr_key(&op_map, "insert", &fp_wrap(op_insert), sizeof(fp_wrap_t));
     map_insert_with_cstr_key(&op_map, "remove", &fp_wrap(op_remove), sizeof(fp_wrap_t));
-    map_insert_with_cstr_key(&op_map, "get",    &fp_wrap(op_get), sizeof(fp_wrap_t));
+    map_insert_with_cstr_key(&op_map, "get",    &fp_wrap(op_get),    sizeof(fp_wrap_t));
     // print usage
     printf("Usage:\n");
-    printf("  > insert: <key>, <value>\n");
-    printf("  > remove: <key>\n");
-    printf("  > get: <key>\n\n");
+    printf("> insert: <key>, <value>\n");
+    printf("> remove: <key>\n");
+    printf("> get:    <key>\n\n");
     // initialize map (cstr -> cstr)
     map_t cstr2cstr = { .bucket_count = 8, 0 };
     // run the shell
@@ -59,7 +59,7 @@ main(int argc, char* argv[]) {
         // retrieve command from hashmap
         op_f op = fp_unwrap(map_get_val(&op_map, token.ptr, span_len(token)), op_f);
         if(op == NULL) {
-            ERR("Unrecognized command: " span_fmt " [%zu]", span_fmt_args(token), span_len(token));
+            ERR("Unrecognized command: " span_fmt, span_fmt_args(token));
             continue;
         }
         // execute the corresponding command
@@ -79,20 +79,16 @@ main(int argc, char* argv[]) {
 
 bool
 op_insert(map_t* map, span_t* token) {
-    printf("token: len = %zu, token = \"" span_fmt "\"\n", span_len(*token), span_fmt_args(*token));
     span_t key = span_next(token, .delim = ",", .trim = true);
     if(key.ptr == NULL) {
         ERR("Failed to parse token.");
         return false;
     }
-    printf("token: len = %zu, token = \"" span_fmt "\"\n", span_len(*token), span_fmt_args(*token));
-    printf("key: len = %zu, token = \"" span_fmt "\"\n", span_len(key), span_fmt_args(key));
     span_t val = span_next(token, .eol = true, .trim = true);
     if(val.ptr == NULL) {
         ERR("Failed to parse token.");
         return false;
     }
-    printf("val: len = %zu, token = \"" span_fmt "\"\n", span_len(val), span_fmt_args(val));
     if(!map_insert(map, key.ptr, span_len(key), val.ptr, span_len(val))) {
         ERR("Failed to insert element: (" span_fmt ", " span_fmt ")", span_fmt_args(key), span_fmt_args(val));
         return false;

@@ -153,7 +153,7 @@ typedef union {
 // accepts a function pointer and returns hh_fp_wrap_t
 #define hh_fp_wrap(fp) ((hh_fp_wrap_t) { ._fp = (void(*)(void)) (fp) })
 // accepts hh_fp_wrap_t* and returns a function pointer specified by fp_type
-#define hh_fp_unwrap(fp_wrap, fp_type) ((fp_type) (((hh_fp_wrap_t*) (fp_wrap))->_fp))
+#define hh_fp_unwrap(fp_wrap, fp_type) ((fp_type) (fp_wrap ? (((hh_fp_wrap_t*) (fp_wrap))->_fp) : NULL))
 
 // Adapted from...
 // stb_ds.h - v0.67 - public domain data structures - Sean Barrett 2019

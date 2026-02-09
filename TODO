@@ -3,3 +3,4 @@
 * hh_path functions for iterating files
 ** globbing
 ** recursive directory traversal
+* hh_map variant with fixed size keys/values (hh_dict(?) and rename hh_map to hh_hmap)
