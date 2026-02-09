@@ -428,12 +428,9 @@ typedef struct {
 hh_args_t*
 hh_args_add_command(hh_args_t* args, const char* name, const char* desc);
 // parse command line arguments
-// returns truthy on success
-_Bool
+// returns the final subcommand parsed, NULL on failure
+const hh_args_t*
 hh_args_parse(hh_args_t* args, FILE* stream, int argc, char* argv[]);
-// returns truthy if the given cmd was parsed
-_Bool
-hh_args_parsed_cmd(const hh_args_t* args, const hh_args_t* cmd);
 // free the argument parser tree
 // NOTE: only needs to be invoked on the root node of the tree
 void
@@ -1541,7 +1538,7 @@ invalid:
     return 0;
 }
 
-_Bool
+const hh_args_t*
 hh_args_parse(hh_args_t* args, FILE* stream, int argc, char* argv[]) {
     HH_ASSERT(args != NULL && argc > 0 && argv[argc] == NULL, "Parameters were malformed");
     HH_ASSERT(args->parent == NULL, "Passed non-root hh_args_t to hh_args_parse");
@@ -1551,9 +1548,9 @@ hh_args_parse(hh_args_t* args, FILE* stream, int argc, char* argv[]) {
     for(int i = 0; i < argc; ++i) {
         if(args->data->entry_help != HH__args_parse_entry_inclusive(args, argv[i], NULL)) continue;
         hh_args_print_usage(args, stream, argc, argv);
-        return 1;
+        return args->data->deepest_parsed;
     }
-    if(!result) return 0;
+    if(!result) return NULL;
     // ensure no flags corresponding to unused commands are passed
     const struct HH__args_entry* entry;
     for(int i = 0; i < argc; ++i) {
@@ -1563,18 +1560,13 @@ hh_args_parse(hh_args_t* args, FILE* stream, int argc, char* argv[]) {
             HH__ARGS_ERR_SET(args,
                 .type = HH__ARGS_ERR_FLAG_INCOMPATIBLE_WITH_COMMAND,
                 .entry = entry);
-            return 0;
+            return NULL;
         }
     }
-    return 1;
+    return args->data->deepest_parsed;
 }
 
 #undef HH__ARGS_ERR_SET
-
-_Bool
-hh_args_parsed_cmd(const hh_args_t* args, const hh_args_t* cmd) {
-    return (args->data->deepest_parsed == cmd);
-}
 
 void
 hh_args_free(hh_args_t* args) {

@@ -77,27 +77,28 @@ main(int argc, char* argv[]) {
     options_init(&opt);
 
     // parse the command line arguments
-    if(!args_parse(&opt.args, HH_MSG_STREAM, argc, argv)) {
+    const hh_args_t* cmd;
+    if(!(cmd = args_parse(&opt.args, HH_MSG_STREAM, argc, argv))) {
         args_print_error(&opt.args, HH_ERR_STREAM);
-        printf("\n");
+        printf("\n\n");
         args_print_usage(&opt.args, HH_MSG_STREAM, argc, argv);
         opt_free(&opt);
         return 1;
     }
 
     // print what operation we 'performed'
-    if(args_parsed_cmd(&opt.args, opt.create.args)) {
+    if(cmd == opt.create.args) {
         printf("%s created with%s%s%s\n", 
             *(opt.input), 
             *(opt.create.content) ? " \"" : " no data",
             *(opt.create.content) ? *(opt.create.content) : "",
             *(opt.create.content) ? "\" as content [-c]" : "");
-    } else if(args_parsed_cmd(&opt.args, opt.rename.args)) {
+    } else if(cmd == opt.rename.args) {
         printf("%s renamed to %s%s\n", 
             *(opt.input), 
             *(opt.rename.output), 
             *(opt.rename.backup) ? " with backup [-b]" : "");
-    } else if(args_parsed_cmd(&opt.args, opt.delete.args)) {
+    } else if(cmd == opt.delete.args) {
         printf("%s deleted%s%s\n", 
             *(opt.input), 
             *(opt.delete.recursive) ? " recursively [-r]" : "", 
