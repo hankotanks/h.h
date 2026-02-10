@@ -324,36 +324,68 @@ hh_span(char* contents);
 #define hh_span_next_ld(span, err, ...) hh_span_next_opt_ld((span), (hh_span_opt) { __VA_ARGS__ }, (err))
 #define hh_span_next_zu(span, err, ...) hh_span_next_opt_zu((span), (hh_span_opt) { __VA_ARGS__ }, (err))
 
+// contains buckets and shared fields across hh_hmap_t, hh_dict_t, etc
+#define HH_HMAP_FIELDS(ty) \
+    hh_##ty##_hash_f hash; \
+    hh_##ty##_comp_f comp; \
+    hh_##ty##_free_f free_key; \
+    hh_##ty##_free_f free_val; \
+    char** buckets;
+
 // templates for custom key hashing and comparator functions
-typedef size_t (*hh_dict_hash_f)(const void* key, size_t size_key);
-// hh_dict_comp_f's return value follows the same paradigm as memcmp or strcmp
+typedef size_t (*hh_hmap_hash_f)(const void* ptr);
+// hh_hmap_comp_f's return value follows the same paradigm as memcmp or strcmp
 //  0 indicates equality
-// -1 means key_a is lexographically less than key_b
+// -1 means fst is lexographically less than snd
 //  1 indicates it is greater than
-typedef int (*hh_dict_comp_f)(const void* key_query, size_t size_key_query, const void* key_in, size_t size_key_in);
+typedef int    (*hh_hmap_comp_f)(const void* fst, const void* snd);
 // signature for freeing both keys and values
-typedef void (*hh_dict_free_f)(const void* ptr, size_t size_ptr);
+typedef void   (*hh_hmap_free_f)(const void* ptr);
+
+// hashmap with fixed entry sizes
+typedef struct {
+    size_t bucket_count;
+    size_t size_key;
+    size_t size_val;
+    HH_HMAP_FIELDS(hmap)
+} hh_hmap_t;
+    
+// insert a key-value pair into the hashmap
+_Bool
+hh_hmap_insert(hh_hmap_t* map, const void* key, const void* val);
+// returns the value associated with a key
+const void*
+hh_hmap_get(const hh_hmap_t* map, const void* key);
+// remove entry corresponding to the given key
+// returns truthy if an entry was removed
+_Bool
+hh_hmap_remove(hh_hmap_t* map, const void* key);
+// free hh_hmap_t
+void
+hh_hmap_free(hh_hmap_t* map);
+
+// functions below mirror the hh_hmap templates above
+typedef size_t (*hh_dict_hash_f)(const void* ptr, size_t size_ptr);
+typedef int    (*hh_dict_comp_f)(const void* fst, size_t size_fst, const void* snd, size_t size_snd);
+typedef void   (*hh_dict_free_f)(const void* ptr, size_t size_ptr);
 
 // hashmap data structure with variably-sized key-value pairs
 // on initialization, only the bucket_count must be provided
 // if hash and comp functions are not given, defaults are used
 // standard initialization:
-// hh_dict_t* hm = { .bucket_count = 32, 0 };
+// hh_dict_t* hm = {32}; // sets bucket_count
 // NOTE: all other fields should be 0-initialized
 typedef struct {
     size_t bucket_count;
-    hh_dict_hash_f hash;
-    hh_dict_comp_f comp;
-    hh_dict_free_f free_key;
-    hh_dict_free_f free_val;
-    char** buckets;
+    HH_HMAP_FIELDS(dict)
 } hh_dict_t;
 
 // represents an element returned by hh_dict_get
-// changing the data pointer to by `val` is UB
+// changing the data pointed to by `val` is UB
 // unless the length is preserved
 typedef struct {
-    size_t size_key, size_val;
+    size_t size_key;
+    size_t size_val;
     const void* key;
     const void* val;
 } hh_dict_entry_t;
@@ -1080,37 +1112,136 @@ hh_span_next_opt_zu(hh_span_t* span, hh_span_opt opt, hh_span_t* err) {
 // https://gist.github.com/MohamedTaha98/ccdf734f13299efb73ff0b12f7ce429f
 // thanks to MohamedTaha98
 static size_t
-HH__dict_hash_djb2(const void* key, size_t size_key) {
+HH__hash_djb2(const void* ptr, size_t size_ptr) {
     size_t hash = 5381;
-    for (size_t i = 0; i < size_key; ++i) hash = ((hash << 5) + hash) + (size_t) ((char*) key)[i];
+    for (size_t i = 0; i < size_ptr; ++i) hash = ((hash << 5) + hash) + (size_t) ((char*) ptr)[i];
     return hash;
 }
 
 static size_t
-HH__dict_hash_generic(const hh_dict_t* map, const void* key, size_t size_key) {
+HH__hmap_hash_generic(const hh_hmap_t* map, const void* ptr) {
     return ((map->hash == NULL) ? 
-        HH__dict_hash_djb2(key, size_key) : 
-        (map->hash)(key, size_key)) % map->bucket_count;
+        HH__hash_djb2(ptr, map->size_key) : 
+        (map->hash)(ptr)) % map->bucket_count;
 }
 
 static int
-HH__dict_comp_generic(const hh_dict_t* map, const void* key_query, size_t size_key_query, const void* key_in, size_t size_key_in) {
-    if(map->comp != NULL) return (map->comp)(key_query, size_key_query, key_in, size_key_in);
-    int result = memcmp(key_query, key_in, HH_MIN(size_key_query, size_key_in));
+HH__hmap_comp_generic(const hh_hmap_t* map, const void* fst, const void* snd) {
+    if(map->comp != NULL) return (map->comp)(fst, snd);
+    return memcmp(fst, snd, map->size_key);
+}
+
+_Bool
+hh_hmap_insert(hh_hmap_t* map, const void* key, const void* val) {
+    HH_ASSERT(map != NULL && key != NULL, 
+        "hh_hmap_insert received malformed arguments");
+    // initialize map
+    if(map->buckets == NULL) {
+        HH_ASSERT(map->size_key > 0, "hh_hmap_t key size must be non-zero");
+        map->buckets = calloc(map->bucket_count, sizeof(char*));
+        if(map->buckets == NULL) return 0;
+    }
+    hh_hmap_remove(map, key);
+    // perform insertion
+    size_t idx, len;
+    idx = HH__hmap_hash_generic(map, key);
+    len = hh_darrlen(map->buckets[idx]);
+    hh_darradd(map->buckets[idx], map->size_key + map->size_val);
+    // copy over entry
+    char* key_start = map->buckets[idx] + len;
+    memcpy(key_start, key, map->size_key);
+    char* val_start = key_start + map->size_key;
+    if(val == NULL) memset(val_start, 0, map->size_val);
+    else memcpy(val_start, val, map->size_val);
+    return 1;
+}
+
+const void*
+hh_hmap_get(const hh_hmap_t* map, const void* key) {
+    HH_ASSERT(map != NULL && key != NULL && map->size_key > 0, 
+        "hh_hmap_get received malformed arguments");
+    if(map->buckets == NULL) return NULL;
+    // get correct bucket
+    size_t idx = HH__hmap_hash_generic(map, key);
+    // step through the bucket
+    const char* entry_key;
+    const char* entry_val;
+    for(size_t i = 0; i < hh_darrlen(map->buckets[idx]);) {
+        entry_key = map->buckets[idx] + i; i += map->size_key;
+        entry_val = map->buckets[idx] + i; i += map->size_val;
+        // return if key was found
+        if(HH__hmap_comp_generic(map, key, entry_key) == 0) return entry_val;
+    }
+    return NULL;
+}
+
+_Bool
+hh_hmap_remove(hh_hmap_t* map, const void* key) {
+    HH_ASSERT(map != NULL && key != NULL && map->size_key > 0, 
+        "hh_hmap_remove received malformed arguments");
+    // get corresponding entry
+    const void* val = hh_hmap_get(map, key);
+    if(val == NULL) return 0;
+    // recompute bucket
+    size_t idx = HH__hmap_hash_generic(map, key);
+    char* bucket = map->buckets[idx];
+    size_t len = hh_darrlen(bucket);
+    // entry bounds
+    char* entry_begin = (char*) val - map->size_key;
+    const char* entry_end = (const char*) val + map->size_val;
+    // remaining bytes to slide over the current entry
+    size_t tail = (size_t) ((bucket + len) - entry_end);
+    memmove(entry_begin, entry_end, tail);
+    // update hh_darrheader_t length to reflect changes
+    hh_darrheader(bucket)->len -= map->size_key + map->size_val;
+    return 1;
+}
+
+void
+hh_hmap_free(hh_hmap_t* map) {
+    HH_ASSERT(map != NULL, "hh_hmap_free received malformed arguments");
+    const char* key;
+    const char* val;
+    if(map->buckets == NULL) return;
+    for(size_t i = 0; i < map->bucket_count; ++i) {
+        for(size_t j = 0; j < hh_darrlen(map->buckets[i]);) {
+            key = map->buckets[i] + j; j += map->size_key;
+            val = map->buckets[i] + j; j += map->size_val;
+            if(map->free_key) (map->free_key)(key);
+            if(map->free_val) (map->free_val)(val);
+        }
+        hh_darrfree(map->buckets[i]);
+    }
+    free(map->buckets);
+}
+
+static size_t
+HH__dict_hash_generic(const hh_dict_t* map, const void* ptr, size_t size_ptr) {
+    return ((map->hash == NULL) ? 
+        HH__hash_djb2(ptr, size_ptr) : 
+        (map->hash)(ptr, size_ptr)) % map->bucket_count;
+}
+
+static int
+HH__dict_comp_generic(const hh_dict_t* map, const void* fst, size_t size_fst, const void* snd, size_t size_snd) {
+    if(map->comp != NULL) return (map->comp)(fst, size_fst, snd, size_snd);
+    int result = memcmp(fst, snd, HH_MIN(size_fst, size_snd));
     if(result != 0) return result;
-    if(size_key_query < size_key_in) return -1;
-    if(size_key_query > size_key_in) return 1;
+    if(size_fst < size_snd) return -1;
+    if(size_fst > size_snd) return 1;
     return 0;
 }
 
 _Bool
 hh_dict_insert(hh_dict_t* map, const void* key, size_t size_key, const void* val, size_t size_val) {
-    if(map == NULL) return 0;
+    HH_ASSERT(map != NULL && key != NULL && size_key > 0, 
+        "hh_dict_insert received malformed arguments");
     // initialize map
     if(map->buckets == NULL) {
         map->buckets = calloc(map->bucket_count, sizeof(char*));
         if(map->buckets == NULL) return 0;
-        for(size_t i = 0; i < map->bucket_count; ++i) hh_darradd(map->buckets[i], sizeof(size_t) * 2);
+        for(size_t i = 0; i < map->bucket_count; ++i) 
+            hh_darradd(map->buckets[i], sizeof(size_t) * 2);
     }
     hh_dict_remove(map, key, size_key);
     // perform insertion
@@ -1138,9 +1269,9 @@ hh_dict_insert_entry(hh_dict_t* map, const hh_dict_entry_t* entry) {
 
 hh_dict_entry_t
 hh_dict_get(const hh_dict_t* map, const void* key, size_t size_key) {
-    if(map == NULL) return (hh_dict_entry_t) {0};
+    HH_ASSERT(map != NULL && key != NULL && size_key > 0, 
+        "hh_dict_get received malformed arguments");
     if(map->buckets == NULL) return (hh_dict_entry_t) {0};
-    if(key == NULL) return (hh_dict_entry_t) {0};
     // get correct bucket
     size_t idx = HH__dict_hash_generic(map, key, size_key);
     // step through the bucket
@@ -1164,6 +1295,8 @@ hh_dict_get_val(const hh_dict_t* map, const void* key, size_t size_key) {
 
 _Bool
 hh_dict_remove(hh_dict_t* map, const void* key, size_t size_key) {
+    HH_ASSERT(map != NULL && key != NULL && size_key > 0, 
+        "hh_dict_remove received malformed arguments");
     // get corresponding entry
     hh_dict_entry_t entry = hh_dict_get(map, key, size_key);
     if(entry.val == NULL) return 0;
@@ -1192,6 +1325,7 @@ HH__dict_it_helper(hh_dict_entry_t* entry, const char* entry_begin) {
 
 hh_dict_entry_t
 HH__dict_it_begin(const hh_dict_t* map) {
+    HH_ASSERT(map != NULL, "hh_dict iterator received malformed arguments");
     hh_dict_entry_t entry;
     size_t idx;
     // scan all buckets until a non-empty one is found
@@ -1208,6 +1342,7 @@ HH__dict_it_begin(const hh_dict_t* map) {
 
 void
 HH__dict_it_next(const hh_dict_t* map, hh_dict_entry_t* entry) {
+    HH_ASSERT(map != NULL, "hh_dict iterator received malformed arguments");
     char* entry_begin;
     size_t idx;
     // compute the bucket index of the entry
@@ -1234,6 +1369,7 @@ found:
 
 void
 hh_dict_free(hh_dict_t* map) {
+    HH_ASSERT(map != NULL, "hh_dict_free received malformed arguments");
     hh_dict_entry_t entry;
     if(map->buckets == NULL) return;
     for(size_t i = 0; i < map->bucket_count; ++i) {
@@ -2093,6 +2229,14 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define span_next_lf hh_span_next_lf
 #define span_next_ld hh_span_next_ld
 #define span_next_zu hh_span_next_zu
+#define hmap_hash_f hh_hmap_hash_f
+#define hmap_comp_f hh_hmap_comp_f
+#define hmap_free_f hh_hmap_free_f
+#define hmap_t hh_hmap_t
+#define hmap_entry_t hh_hmap_entry_t
+#define hmap_insert hh_hmap_insert
+#define hmap_get hh_hmap_get
+// TODO: finish implementing hh_hmap
 #define dict_hash_f hh_dict_hash_f
 #define dict_comp_f hh_dict_comp_f
 #define dict_free_f hh_dict_free_f
