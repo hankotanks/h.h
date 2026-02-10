@@ -360,9 +360,12 @@ hh_hmap_get(const hh_hmap_t* map, const void* key);
 // returns truthy if an entry was removed
 _Bool
 hh_hmap_remove(hh_hmap_t* map, const void* key);
+// TODO: implement hh_hmap_it (and add prefix stripping entry)
 // free hh_hmap_t
 void
 hh_hmap_free(hh_hmap_t* map);
+
+
 
 // functions below mirror the hh_hmap templates above
 typedef size_t (*hh_dict_hash_f)(const void* ptr, size_t size_ptr);
@@ -2233,10 +2236,10 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define hmap_comp_f hh_hmap_comp_f
 #define hmap_free_f hh_hmap_free_f
 #define hmap_t hh_hmap_t
-#define hmap_entry_t hh_hmap_entry_t
 #define hmap_insert hh_hmap_insert
 #define hmap_get hh_hmap_get
-// TODO: finish implementing hh_hmap
+#define hmap_remove hh_hmap_remove
+#define hmap_free hh_hmap_free
 #define dict_hash_f hh_dict_hash_f
 #define dict_comp_f hh_dict_comp_f
 #define dict_free_f hh_dict_free_f
