@@ -4,21 +4,21 @@
 
 #include <stdbool.h>
 
-typedef bool (*op_f)(map_t* map, span_t* token);
+typedef bool (*op_f)(dict_t* map, span_t* token);
 
 // parsing functions for commands
 bool
-op_insert(map_t* map, span_t* token);
+op_insert(dict_t* map, span_t* token);
 bool
-op_remove(map_t* map, span_t* token);
+op_remove(dict_t* map, span_t* token);
 bool
-op_get(map_t* map, span_t* token);
+op_get(dict_t* map, span_t* token);
 
 // helper functions for printing the cstr2cstr map
 void
-cstr2cstr_dump_keys(const map_t* map);
+cstr2cstr_dump_keys(const dict_t* map);
 void
-cstr2cstr_dump_buckets(const map_t* map);
+cstr2cstr_dump_buckets(const dict_t* map);
 
 #define BUF_LEN 512
 
@@ -27,17 +27,17 @@ main(int argc, char* argv[]) {
     (void) argc;
     (void) argv;
     // initialize map of available commands
-    map_t op_map = { .bucket_count = 5, 0 };
-    map_insert_with_cstr_key(&op_map, "insert", &fp_wrap(op_insert), sizeof(fp_wrap_t));
-    map_insert_with_cstr_key(&op_map, "remove", &fp_wrap(op_remove), sizeof(fp_wrap_t));
-    map_insert_with_cstr_key(&op_map, "get",    &fp_wrap(op_get),    sizeof(fp_wrap_t));
+    dict_t op_map = { .bucket_count = 5, 0 };
+    dict_insert_with_cstr_key(&op_map, "insert", &fp_wrap(op_insert), sizeof(fp_wrap_t));
+    dict_insert_with_cstr_key(&op_map, "remove", &fp_wrap(op_remove), sizeof(fp_wrap_t));
+    dict_insert_with_cstr_key(&op_map, "get",    &fp_wrap(op_get),    sizeof(fp_wrap_t));
     // print usage
     printf("Usage:\n");
     printf("> insert: <key>, <value>\n");
     printf("> remove: <key>\n");
     printf("> get:    <key>\n\n");
     // initialize map (cstr -> cstr)
-    map_t cstr2cstr = { .bucket_count = 8, 0 };
+    dict_t cstr2cstr = { .bucket_count = 8, 0 };
     // run the shell
     for(;;) { 
         printf("> ");
@@ -57,7 +57,7 @@ main(int argc, char* argv[]) {
             continue;
         }
         // retrieve command from hashmap
-        op_f op = fp_unwrap(map_get_val(&op_map, token.ptr, span_len(token)), op_f);
+        op_f op = fp_unwrap(dict_get_val(&op_map, token.ptr, span_len(token)), op_f);
         if(op == NULL) {
             ERR("Unrecognized command: " span_fmt, span_fmt_args(token));
             continue;
@@ -68,8 +68,8 @@ main(int argc, char* argv[]) {
         cstr2cstr_dump_keys(&cstr2cstr);
         cstr2cstr_dump_buckets(&cstr2cstr);
     }
-    map_free(&op_map);
-    map_free(&cstr2cstr);
+    dict_free(&op_map);
+    dict_free(&cstr2cstr);
     return 0;
 }
 
@@ -78,7 +78,7 @@ main(int argc, char* argv[]) {
 //
 
 bool
-op_insert(map_t* map, span_t* token) {
+op_insert(dict_t* map, span_t* token) {
     span_t key = span_next(token, .delim = ",", .trim = true);
     if(key.ptr == NULL) {
         ERR("Failed to parse token.");
@@ -89,7 +89,7 @@ op_insert(map_t* map, span_t* token) {
         ERR("Failed to parse token.");
         return false;
     }
-    if(!map_insert(map, key.ptr, span_len(key), val.ptr, span_len(val))) {
+    if(!dict_insert(map, key.ptr, span_len(key), val.ptr, span_len(val))) {
         ERR("Failed to insert element: (" span_fmt ", " span_fmt ")", span_fmt_args(key), span_fmt_args(val));
         return false;
     }
@@ -97,28 +97,28 @@ op_insert(map_t* map, span_t* token) {
 }
 
 bool
-op_remove(map_t* map, span_t* token) {
+op_remove(dict_t* map, span_t* token) {
     span_t key = span_next(token, .eol = true, .trim = true);
     if(key.ptr == NULL) {
         ERR("Failed to parse token.");
         return false;
     }
-    map_entry_t entry = map_get(map, key.ptr, span_len(key));
+    dict_entry_t entry = dict_get(map, key.ptr, span_len(key));
     if(entry.val == NULL) {
         ERR("Given key was not found: " span_fmt, span_fmt_args(key));
         return false;
     }
-    return map_remove(map, key.ptr, span_len(key));
+    return dict_remove(map, key.ptr, span_len(key));
 }
 
 bool
-op_get(map_t* map, span_t* token) {
+op_get(dict_t* map, span_t* token) {
     span_t key = span_next(token, .eol = true, .trim = true);
     if(key.ptr == NULL) {
         ERR("Failed to parse token.");
         return false;
     }
-    map_entry_t entry = map_get(map, key.ptr, span_len(key));
+    dict_entry_t entry = dict_get(map, key.ptr, span_len(key));
     if(entry.val == NULL) {
         ERR("Failed to get element: " span_fmt, span_fmt_args(key));
         return false;
@@ -130,16 +130,16 @@ op_get(map_t* map, span_t* token) {
 }
 
 void
-cstr2cstr_dump_keys(const map_t* map) {
+cstr2cstr_dump_keys(const dict_t* map) {
     printf("keys: ");
-    map_it(map, it) printf("%.*s, ", (int)it.size_key, (char*)it.key);
+    dict_it(map, it) printf("%.*s, ", (int)it.size_key, (char*)it.key);
     printf("\n");
 }
 
 void
-cstr2cstr_dump_buckets(const map_t* map) {
+cstr2cstr_dump_buckets(const dict_t* map) {
     printf("buckets:\n");
-    map_entry_t entry;
+    dict_entry_t entry;
     for(size_t i = 0; i < map->bucket_count; ++i) {
         printf("%zu: ", i);
         for(size_t j = 0; j < darrlen(map->buckets[i]);) {
