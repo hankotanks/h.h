@@ -326,6 +326,7 @@ hh_span(char* contents);
 
 // contains buckets and shared fields across hh_hmap_t, hh_dict_t, etc
 #define HH_HMAP_FIELDS(ty) \
+    size_t bucket_count; \
     hh_##ty##_hash_f hash; \
     hh_##ty##_comp_f comp; \
     hh_##ty##_free_f free_key; \
@@ -344,7 +345,6 @@ typedef void   (*hh_hmap_free_f)(const void* ptr);
 
 // hashmap with fixed entry sizes
 typedef struct {
-    size_t bucket_count;
     size_t size_key;
     size_t size_val;
     HH_HMAP_FIELDS(hmap)
@@ -365,8 +365,6 @@ hh_hmap_remove(hh_hmap_t* map, const void* key);
 void
 hh_hmap_free(hh_hmap_t* map);
 
-
-
 // functions below mirror the hh_hmap templates above
 typedef size_t (*hh_dict_hash_f)(const void* ptr, size_t size_ptr);
 typedef int    (*hh_dict_comp_f)(const void* fst, size_t size_fst, const void* snd, size_t size_snd);
@@ -379,7 +377,6 @@ typedef void   (*hh_dict_free_f)(const void* ptr, size_t size_ptr);
 // hh_dict_t* hm = {32}; // sets bucket_count
 // NOTE: all other fields should be 0-initialized
 typedef struct {
-    size_t bucket_count;
     HH_HMAP_FIELDS(dict)
 } hh_dict_t;
 
@@ -638,15 +635,17 @@ hh_getdelim(char** buf, size_t* bufsiz, int delimiter, FILE* fp);
 ptrdiff_t // NO PREFIX STRIPPING
 hh_getline(char** buf, size_t* bufsiz, FILE* fp);
 
+#undef HH_HMAP_FIELDS
+
+// the default number of buckets to be used by hh_hmap and hh_dict
+#ifndef HH_BUCKET_COUNT
+#define HH_BUCKET_COUNT 16
+#endif // HH_BUCKET_COUNT
+
 hh_dict_entry_t
 HH__dict_it_begin(const hh_dict_t* map);
 void
 HH__dict_it_next(const hh_dict_t* map, hh_dict_entry_t* entry);
-
-// in practice, this value does not need to be modified
-#ifndef HH_ARGS_BUCKET_COUNT
-#define HH_ARGS_BUCKET_COUNT 10
-#endif // HH_ARGS_BUCKET_COUNT
 
 // defines indentation of the usage tree (must be >2)
 #ifndef HH_ARGS_USAGE_INDENT
@@ -1141,6 +1140,7 @@ hh_hmap_insert(hh_hmap_t* map, const void* key, const void* val) {
     // initialize map
     if(map->buckets == NULL) {
         HH_ASSERT(map->size_key > 0, "hh_hmap_t key size must be non-zero");
+        if(map->bucket_count == 0) map->bucket_count = HH_BUCKET_COUNT;
         map->buckets = calloc(map->bucket_count, sizeof(char*));
         if(map->buckets == NULL) return 0;
     }
@@ -1241,6 +1241,7 @@ hh_dict_insert(hh_dict_t* map, const void* key, size_t size_key, const void* val
         "hh_dict_insert received malformed arguments");
     // initialize map
     if(map->buckets == NULL) {
+        if(map->bucket_count == 0) map->bucket_count = HH_BUCKET_COUNT;
         map->buckets = calloc(map->bucket_count, sizeof(char*));
         if(map->buckets == NULL) return 0;
         for(size_t i = 0; i < map->bucket_count; ++i) 
@@ -1476,8 +1477,6 @@ static struct HH__args_data*
 HH__args_data_init(void) {
     struct HH__args_data* data = calloc(1, sizeof(*data));
     HH_ASSERT(data != NULL, HH__ARGS_INVALID "Failed to allocate");
-    data->flags.bucket_count = HH_ARGS_BUCKET_COUNT;
-    data->flags_long.bucket_count = HH_ARGS_BUCKET_COUNT;
     // add [-h, --help] flag
     static const hh_flag_opt opt = { 
         .flag = 'h', 

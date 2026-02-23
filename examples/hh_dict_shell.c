@@ -27,7 +27,7 @@ main(int argc, char* argv[]) {
     (void) argc;
     (void) argv;
     // initialize map of available commands
-    dict_t op_map = { .bucket_count = 5, 0 };
+    dict_t op_map = {0};
     dict_insert_with_cstr_key(&op_map, "insert", &fp_wrap(op_insert), sizeof(fp_wrap_t));
     dict_insert_with_cstr_key(&op_map, "remove", &fp_wrap(op_remove), sizeof(fp_wrap_t));
     dict_insert_with_cstr_key(&op_map, "get",    &fp_wrap(op_get),    sizeof(fp_wrap_t));
@@ -37,7 +37,7 @@ main(int argc, char* argv[]) {
     printf("> remove: <key>\n");
     printf("> get:    <key>\n\n");
     // initialize map (cstr -> cstr)
-    dict_t cstr2cstr = { .bucket_count = 8, 0 };
+    dict_t cstr2cstr = { .bucket_count = 5 };
     // run the shell
     for(;;) { 
         printf("> ");
