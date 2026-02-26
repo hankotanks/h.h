@@ -2,12 +2,19 @@
 #define HH__
 
 #ifndef _WIN32
+#ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE
+#endif // not _DEFAULT_SOURCE
+#ifdef _POSIX_C_SOURCE
+#undef _POSIX_C_SOURCE
+#endif // _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #else
 #ifdef __MINGW32__
 #ifdef _MSC_VER
+#ifndef __USE_MINGW_ANSI_STDIO
 #define __USE_MINGW_ANSI_STDIO
+#endif // not __USE_MINGW_ANSI_STDIO
 #endif // _MSC_VER
 #endif // __MINGW32__
 #endif // _WIN32
@@ -29,13 +36,13 @@
 
 #ifndef HH_ERR_STREAM
 #define HH_ERR_STREAM stderr
-#endif // HH_ERR_STREAM
+#endif // not HH_ERR_STREAM
 #ifndef HH_MSG_STREAM
 #define HH_MSG_STREAM stdout
-#endif // HH_MSG_STREAM
+#endif // not HH_MSG_STREAM
 #ifndef HH_DBG_STREAM
 #define HH_DBG_STREAM stdout
-#endif // HH_DBG_STREAM
+#endif // not HH_DBG_STREAM
 
 // all logging functions have the same behavior as printf,
 // HH_ERR logs to stderr instead of stdout
@@ -306,6 +313,7 @@ typedef struct {
 #define hh_span_fmt "%.*s"
 #define hh_span_fmt_args(span) ((int) hh_span_len(span)), ((span).ptr)
 
+// TODO: consider implementing a const version of hh_span_t
 // creates a stack-allocated span from a null-terminated cstr
 // the span does NOT contain the null-terminator
 hh_span_t
@@ -349,18 +357,34 @@ typedef struct {
     size_t size_val;
     HH_HMAP_FIELDS(hmap)
 } hh_hmap_t;
+
+// represents an element returned by hh_hmap_get and hh_dict_get
+// changing the data pointed to by `val` is UB
+// unless the length is preserved
+typedef struct {
+    size_t size_key;
+    size_t size_val;
+    const void* key;
+    const void* val;
+} hh_hmap_entry_t;
     
 // insert a key-value pair into the hashmap
-_Bool
+const void*
 hh_hmap_insert(hh_hmap_t* map, const void* key, const void* val);
 // returns the value associated with a key
-const void*
+hh_hmap_entry_t
 hh_hmap_get(const hh_hmap_t* map, const void* key);
+// returns the value corresponding to the given key
+// NULL if the key is not a member of the map
+const void*
+hh_hmap_get_val(const hh_hmap_t* map, const void* key);
 // remove entry corresponding to the given key
 // returns truthy if an entry was removed
 _Bool
 hh_hmap_remove(hh_hmap_t* map, const void* key);
-// TODO: implement hh_hmap_it (and add prefix stripping entry)
+// iterator macro for hh_hmap
+// hh_hmap_it(&map, it) printf("%d\n", *(int*) it);
+#define hh_hmap_it(map, it) for(hh_hmap_entry_t it = HH__hmap_it_begin(map); it.val; HH__hmap_it_next(map, &it))
 // free hh_hmap_t
 void
 hh_hmap_free(hh_hmap_t* map);
@@ -380,16 +404,10 @@ typedef struct {
     HH_HMAP_FIELDS(dict)
 } hh_dict_t;
 
-// represents an element returned by hh_dict_get
-// changing the data pointed to by `val` is UB
-// unless the length is preserved
-typedef struct {
-    size_t size_key;
-    size_t size_val;
-    const void* key;
-    const void* val;
-} hh_dict_entry_t;
+// dictionary entries are the same as hmap entries
+typedef hh_hmap_entry_t hh_dict_entry_t;
 
+// TODO: This should return const void* (as hh_hmap_insert does)
 // insert a key-value pair into the hashmap
 _Bool
 hh_dict_insert(hh_dict_t* map, const void* key, size_t size_key, const void* val, size_t size_val);
@@ -490,7 +508,7 @@ hh_has_prefix(const char* str, const char* prefix);
 _Bool
 hh_has_suffix(const char* str, const char* suffix);
 //
-#endif // HH__
+#endif // not HH__
 
 //
 //
@@ -565,7 +583,7 @@ struct HH__arena {
 // can be overwritten by the user
 #ifndef HH_ARENA_DEFAULT_SIZE
 #define HH_ARENA_DEFAULT_SIZE (256 * 1024)
-#endif // HH_ARENA_DEFAULT_SIZE
+#endif // not HH_ARENA_DEFAULT_SIZE
 
 // helper functions for hh_path
 char*
@@ -640,7 +658,12 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp);
 // the default number of buckets to be used by hh_hmap and hh_dict
 #ifndef HH_BUCKET_COUNT
 #define HH_BUCKET_COUNT 16
-#endif // HH_BUCKET_COUNT
+#endif // not HH_BUCKET_COUNT
+
+hh_hmap_entry_t
+HH__hmap_it_begin(const hh_hmap_t* map);
+void
+HH__hmap_it_next(const hh_hmap_t* map, hh_hmap_entry_t* entry);
 
 hh_dict_entry_t
 HH__dict_it_begin(const hh_dict_t* map);
@@ -650,7 +673,7 @@ HH__dict_it_next(const hh_dict_t* map, hh_dict_entry_t* entry);
 // defines indentation of the usage tree (must be >2)
 #ifndef HH_ARGS_USAGE_INDENT
 #define HH_ARGS_USAGE_INDENT 4
-#endif // HH_ARGS_USAGE_INDENT
+#endif // not HH_ARGS_USAGE_INDENT
 
 struct HH__args_entry {
     hh_flag_opt flag;
@@ -1116,7 +1139,7 @@ hh_span_next_opt_zu(hh_span_t* span, hh_span_opt opt, hh_span_t* err) {
 static size_t
 HH__hash_djb2(const void* ptr, size_t size_ptr) {
     size_t hash = 5381;
-    for (size_t i = 0; i < size_ptr; ++i) hash = ((hash << 5) + hash) + (size_t) ((char*) ptr)[i];
+    for(size_t i = 0; i < size_ptr; ++i) hash = ((hash << 5) + hash) + (size_t) ((char*) ptr)[i];
     return hash;
 }
 
@@ -1133,8 +1156,12 @@ HH__hmap_comp_generic(const hh_hmap_t* map, const void* fst, const void* snd) {
     return memcmp(fst, snd, map->size_key);
 }
 
-_Bool
+const void*
 hh_hmap_insert(hh_hmap_t* map, const void* key, const void* val) {
+    // TODO: All HH_ASSERTs used for parameter validation
+    // could be replace with something like HH_VALIDATE to distinguish them
+    // * validations are the users' fault
+    // * asserts are the developer's fault
     HH_ASSERT(map != NULL && key != NULL, 
         "hh_hmap_insert received malformed arguments");
     // initialize map
@@ -1142,7 +1169,7 @@ hh_hmap_insert(hh_hmap_t* map, const void* key, const void* val) {
         HH_ASSERT(map->size_key > 0, "hh_hmap_t key size must be non-zero");
         if(map->bucket_count == 0) map->bucket_count = HH_BUCKET_COUNT;
         map->buckets = calloc(map->bucket_count, sizeof(char*));
-        if(map->buckets == NULL) return 0;
+        if(map->buckets == NULL) return NULL;
     }
     hh_hmap_remove(map, key);
     // perform insertion
@@ -1156,26 +1183,36 @@ hh_hmap_insert(hh_hmap_t* map, const void* key, const void* val) {
     char* val_start = key_start + map->size_key;
     if(val == NULL) memset(val_start, 0, map->size_val);
     else memcpy(val_start, val, map->size_val);
-    return 1;
+    return val_start;
 }
 
-const void*
+hh_hmap_entry_t
 hh_hmap_get(const hh_hmap_t* map, const void* key) {
     HH_ASSERT(map != NULL && key != NULL && map->size_key > 0, 
         "hh_hmap_get received malformed arguments");
-    if(map->buckets == NULL) return NULL;
+    if(map->buckets == NULL) goto failure;
     // get correct bucket
     size_t idx = HH__hmap_hash_generic(map, key);
     // step through the bucket
-    const char* entry_key;
-    const char* entry_val;
+    hh_hmap_entry_t entry;
     for(size_t i = 0; i < hh_darrlen(map->buckets[idx]);) {
-        entry_key = map->buckets[idx] + i; i += map->size_key;
-        entry_val = map->buckets[idx] + i; i += map->size_val;
+        entry.key = map->buckets[idx] + i; i += map->size_key;
+        entry.val = map->buckets[idx] + i; i += map->size_val;
         // return if key was found
-        if(HH__hmap_comp_generic(map, key, entry_key) == 0) return entry_val;
+        if(HH__hmap_comp_generic(map, key, entry.key) == 0) {
+            entry.size_key = map->size_key;
+            entry.size_val = map->size_val;
+            return entry;
+        }
     }
-    return NULL;
+failure:
+    return (hh_hmap_entry_t) {0};
+}
+
+const void*
+hh_hmap_get_val(const hh_hmap_t* map, const void* key) {
+    hh_hmap_entry_t entry = hh_hmap_get(map, key);
+    return entry.val;
 }
 
 _Bool
@@ -1183,21 +1220,65 @@ hh_hmap_remove(hh_hmap_t* map, const void* key) {
     HH_ASSERT(map != NULL && key != NULL && map->size_key > 0, 
         "hh_hmap_remove received malformed arguments");
     // get corresponding entry
-    const void* val = hh_hmap_get(map, key);
+    char* val = (char*) hh_hmap_get_val(map, key);
     if(val == NULL) return 0;
     // recompute bucket
     size_t idx = HH__hmap_hash_generic(map, key);
-    char* bucket = map->buckets[idx];
-    size_t len = hh_darrlen(bucket);
+    char* bucket_begin = map->buckets[idx];
+    char* bucket_end = bucket_begin + hh_darrlen(bucket_begin);
     // entry bounds
-    char* entry_begin = (char*) val - map->size_key;
-    const char* entry_end = (const char*) val + map->size_val;
+    char* entry_begin = val - map->size_key;
+    const char* entry_end = val + map->size_val;
     // remaining bytes to slide over the current entry
-    size_t tail = (size_t) ((bucket + len) - entry_end);
-    memmove(entry_begin, entry_end, tail);
+    memmove(entry_begin, entry_end, (size_t) (bucket_end - entry_end));
     // update hh_darrheader_t length to reflect changes
-    hh_darrheader(bucket)->len -= map->size_key + map->size_val;
+    hh_darrheader(bucket_begin)->len--;
     return 1;
+}
+
+hh_hmap_entry_t
+HH__hmap_it_begin(const hh_hmap_t* map) {
+    HH_ASSERT(map != NULL, "hh_dict iterator received malformed arguments");
+    if(map->buckets == NULL) goto finish;
+    // scan all buckets until a non-empty one is found
+    for(size_t idx = 0; idx < map->bucket_count; ++idx) {
+        if(hh_darrlen(map->buckets[idx]) == 0) continue; 
+        return (hh_hmap_entry_t) { 
+            .size_key = map->size_key, 
+            .size_val = map->size_val, 
+            .key = map->buckets[idx], 
+            .val = map->buckets[idx] + map->size_key 
+        };
+    }
+finish:
+    // bucket is empty
+    return (hh_hmap_entry_t) {0};
+}
+
+void
+HH__hmap_it_next(const hh_hmap_t* map, hh_hmap_entry_t* entry) {
+    HH_ASSERT(map != NULL, "hh_dict iterator received malformed arguments");
+    const char* entry_begin;
+    size_t idx;
+    // compute the bucket index of the entry
+    entry_begin = entry->key;
+    idx = HH__hmap_hash_generic(map, entry_begin);
+    // look for the next entry in the same bucket
+    entry_begin += map->size_key + map->size_val;
+    if(entry_begin < map->buckets[idx] + hh_darrlen(map->buckets[idx])) {
+        entry->key = entry_begin;
+        entry->val = entry_begin + map->size_key;
+        return;
+    }
+    // scan remaining buckets if we didn't find another element in the previous one
+    for(++idx; idx < map->bucket_count; ++idx) {
+        if(hh_darrlen(map->buckets[idx]) == 0) continue;
+        entry->key = map->buckets[idx];
+        entry->val = map->buckets[idx] + map->size_key;
+        return;
+    }
+    // end of iteration
+    memset(entry, 0, sizeof(hh_hmap_entry_t));
 }
 
 void
@@ -1330,16 +1411,17 @@ HH__dict_it_helper(hh_dict_entry_t* entry, const char* entry_begin) {
 hh_dict_entry_t
 HH__dict_it_begin(const hh_dict_t* map) {
     HH_ASSERT(map != NULL, "hh_dict iterator received malformed arguments");
-    hh_dict_entry_t entry;
-    size_t idx;
+    if(map->buckets == NULL) goto finish;
     // scan all buckets until a non-empty one is found
-    for(idx = 0; idx < map->bucket_count; ++idx) {
+    hh_dict_entry_t entry;
+    for(size_t idx = 0; idx < map->bucket_count; ++idx) {
         // a non-empty bucket is longer than the terminating 0, 0
         if(hh_darrlen(map->buckets[idx]) > sizeof(size_t) * 2) {
             HH__dict_it_helper(&entry, map->buckets[idx]);
             return entry;
         }
     }
+finish:
     // bucket is empty
     return (hh_dict_entry_t) {0};
 }
@@ -2032,6 +2114,8 @@ hh_args_print_usage(const hh_args_t* args, FILE* stream, int argc, char* argv[])
     hh_darrfree(levels);
 }
 
+// TODO: I don't think this should by default read the file into a darr
+// maybe make a separate function called hh_darr_read_entire_file
 char* 
 hh_read_entire_file(const char* path) {
     FILE* f = fopen(path, "rb");
@@ -2235,9 +2319,12 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define hmap_comp_f hh_hmap_comp_f
 #define hmap_free_f hh_hmap_free_f
 #define hmap_t hh_hmap_t
+#define hmap_entry_t hh_hmap_entry_t
 #define hmap_insert hh_hmap_insert
 #define hmap_get hh_hmap_get
+#define hmap_get_val hh_hmap_get_val
 #define hmap_remove hh_hmap_remove
+#define hmap_it hh_hmap_it
 #define hmap_free hh_hmap_free
 #define dict_hash_f hh_dict_hash_f
 #define dict_comp_f hh_dict_comp_f
@@ -2270,4 +2357,4 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 //
 #endif // HH_STRIP_PREFIXES
 //
-#endif // HH__STRIP_PREFIXES
+#endif // not HH__STRIP_PREFIXES
