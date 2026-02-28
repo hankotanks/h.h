@@ -162,6 +162,10 @@ typedef union {
 // accepts hh_fp_wrap_t* and returns a function pointer specified by fp_type
 #define hh_fp_unwrap(fp_wrap, fp_type) ((fp_type) (fp_wrap ? (((hh_fp_wrap_t*) (fp_wrap))->_fp) : NULL))
 
+// returns the number of arguments in __VA_ARGS__
+// original source: https://groups.google.com/g/comp.std.c/c/d-6Mj5Lko_s?pli=1
+#define HH_ARGS_LENGTH(...) HH__ARGS_LENGTH(__VA_ARGS__, HH__ARGS_LENGTH_JOIN())
+
 // Adapted from...
 // stb_ds.h - v0.67 - public domain data structures - Sean Barrett 2019
 
@@ -175,8 +179,9 @@ typedef union {
 // hh_darrlen      returns array length
 // hh_darrcap      returns array capacity
 // hh_darrswap     swaps the elements at 2 indices
-// hh_darrswapdel  deletes the ith element by swapping ot with the last element, then popping
+// hh_darrswapdel  deletes the ith element by swapping it with the last element, then popping
 
+// TODO: we can reduce the number of helper function calls and simplify logic surrounding arrnew and arrgrow
 #define hh_darrclear(arr)      ((arr == NULL) ? 0 : (hh_darrheader(arr)->len = 0))
 #define hh_darrfree(arr)       ((void) ((arr == NULL) ? (void) 0 : free(hh_darrheader(arr))), (arr) = NULL)
 #define hh_darrlast(arr)       ((arr)[hh_darrheader(arr)->len - 1])
@@ -409,7 +414,7 @@ typedef hh_hmap_entry_t hh_dict_entry_t;
 
 // TODO: This should return const void* (as hh_hmap_insert does)
 // insert a key-value pair into the hashmap
-_Bool
+const void*
 hh_dict_insert(hh_dict_t* map, const void* key, size_t size_key, const void* val, size_t size_val);
 // macro for inserting string keys
 // NOTE: the key stored in the hashmap is null-terminated,
@@ -491,6 +496,36 @@ hh_args_print_error(const hh_args_t* args, FILE* stream);
 // print usage as defined by hh_args_t
 void
 hh_args_print_usage(const hh_args_t* args, FILE* stream, int argc, char* argv[]);
+
+// a section node in an INI document tree
+typedef struct {
+    hh_dict_t sections;
+    hh_dict_t props;
+    int n;
+} hh_ini_t;
+
+// parses an INI configuration file
+// return truthy on success
+// otherwise, the locaiton of the parsing failure is given by err
+// INI sections are hierarchical (period-delineated) i.e. [section.sub]
+// whitespace around section titles is stripped
+// line continuations are fully supported (subsequent whitespace is skipped)
+_Bool
+hh_ini_parse(hh_ini_t* ini, hh_span_t* lines, hh_span_t* err);
+void
+hh_ini_free(hh_ini_t* ini);
+// returns a given subsection in a hierarchy
+// i.e. hh_ini_query_section(ini, "section.sub")
+const hh_ini_t*
+hh_ini_query_section(const hh_ini_t* ini, const char* section);
+// query a property in a given section hierarchy
+// return NULL if the property was not parsed
+const char*
+hh_ini_query(const hh_ini_t* ini, const char* section, const char* key);
+// query and parse a property using sscanf
+// returns truthy on success
+#define hh_ini_scanf(ini, section, key, fmt, ...) \
+    HH__ini_scanf(ini, section, key, fmt " %n", HH_ARGS_LENGTH(__VA_ARGS__), __VA_ARGS__, &((ini)->n))
 
 // reads an entire file given by path
 // returns a dynamic array with file contents (free with hh_darrfree)
@@ -630,6 +665,35 @@ HH__path_join(char* path, ...);
 #endif // __STDC_VERSION__
 #endif // __STD__
 
+#define HH__ARGS_LENGTH(...) HH__ARGS_LENGTH_128(__VA_ARGS__)
+#define HH__ARGS_LENGTH_128(_1, _2, _3, _4, _5, _6, _7, _8, _9, \
+    _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, \
+    _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, \
+    _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, \
+    _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, \
+    _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, \
+    _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, \
+    _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, \
+    _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, \
+    _105, _106, _107, _108, _109, _110, _111, _112, _113, _114, \
+    _115, _116, _117, _118, _119, _120, _121, _122, _123, _124, \
+    _125, _126, _127, N, ...) N
+
+#define HH__ARGS_LENGTH_JOIN() \
+    127, 126, 125, 124, 123, 122, 121, 120, \
+    119, 118, 117, 116, 115, 114, 113, 112, \
+    111, 110, 109, 108, 107, 106, 105, 104, \
+    103, 102, 101, 100, 99, 98, 97, 96, 95, \
+    94, 93, 92, 91, 90, 89, 88, 87, 86, 85, \
+    84, 83, 82, 81, 80, 79, 78, 77, 76, 75, \
+    74, 73, 72, 71, 70, 69, 68, 67, 66, 65, \
+    64, 63, 62, 61, 60, 59, 58, 57, 56, 55, \
+    54, 53, 52, 51, 50, 49, 48, 47, 46, 45, \
+    44, 43, 42, 41, 40, 39, 38, 37, 36, 35, \
+    34, 33, 32, 31, 30, 29, 28, 27, 26, 25, \
+    24, 23, 22, 21, 20, 19, 18, 17, 16, 15, \
+    14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
+
 // if the following is defined
 // hh_span_next_lf, hh_span_next_ld, hh_span_next_zu, etc
 // will return huge values on failure.
@@ -736,18 +800,27 @@ struct HH__args_t {
 
 const void*
 HH__args_add_flag(hh_args_t* args, hh_flag_type type, hh_flag_opt opt);
+
+// implementation for hh_ini_scanf
+// using HH_ARGS_LENGTH and the %n format specifier, 
+// this function can check
+// * that every arg was parsed
+// * that the entire property value was parsed
+_Bool
+HH__ini_scanf(const hh_ini_t* ini, const char* section, const char* key, const char* fmt, int n, ...);
 //
 #endif // HH__
 
 #ifdef HH_IMPLEMENTATION
 // implementation-exclusive includes
-#include <string.h>
+#include <ctype.h>
 #include <errno.h>
+#include <string.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #ifdef HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
-#include <float.h>
 #include <math.h>
+#include <float.h>
 #include <limits.h>
 #endif // HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
 
@@ -1316,7 +1389,7 @@ HH__dict_comp_generic(const hh_dict_t* map, const void* fst, size_t size_fst, co
     return 0;
 }
 
-_Bool
+const void*
 hh_dict_insert(hh_dict_t* map, const void* key, size_t size_key, const void* val, size_t size_val) {
     HH_ASSERT(map != NULL && key != NULL && size_key > 0, 
         "hh_dict_insert received malformed arguments");
@@ -1324,7 +1397,7 @@ hh_dict_insert(hh_dict_t* map, const void* key, size_t size_key, const void* val
     if(map->buckets == NULL) {
         if(map->bucket_count == 0) map->bucket_count = HH_BUCKET_COUNT;
         map->buckets = calloc(map->bucket_count, sizeof(char*));
-        if(map->buckets == NULL) return 0;
+        if(map->buckets == NULL) return NULL;
         for(size_t i = 0; i < map->bucket_count; ++i) 
             hh_darradd(map->buckets[i], sizeof(size_t) * 2);
     }
@@ -1344,7 +1417,7 @@ hh_dict_insert(hh_dict_t* map, const void* key, size_t size_key, const void* val
     char* val_start = ((char*) meta) + size_key;
     if(val == NULL) memset(val_start, 0, size_val);
     else memcpy(val_start, val, size_val);
-    return 1;
+    return val_start;
 }
 
 _Bool
@@ -1367,9 +1440,11 @@ hh_dict_get(const hh_dict_t* map, const void* key, size_t size_key) {
         entry.key = map->buckets[idx] + i; i += entry.size_key;
         entry.val = map->buckets[idx] + i; i += entry.size_val;
         // return if key was found
+        if(entry.size_key == 0 && entry.size_val == 0) goto failure;
         if(HH__dict_comp_generic(map, key, size_key, entry.key, entry.size_key) == 0) 
             return entry;
     }
+failure:
     return (hh_dict_entry_t) {0};
 }
 
@@ -2114,6 +2189,213 @@ hh_args_print_usage(const hh_args_t* args, FILE* stream, int argc, char* argv[])
     hh_darrfree(levels);
 }
 
+static size_t
+HH__ini_skip(hh_span_t s) {
+    size_t len = hh_span_len(s);
+    size_t incr = 0;
+    if(len >= 2 && s.ptr[0] == '\\') {
+        if(s.ptr[1] == '\n') incr = 2;
+        else if(len >= 3 && s.ptr[1] == '\r' && s.ptr[2] == '\n') incr = 3;
+    }
+    while(incr > 0 && s.ptr + incr < s.end && isspace(s.ptr[incr])) ++incr;
+    return incr;
+}
+
+static size_t
+HH__ini_trim(hh_span_t s) {
+    size_t len = hh_span_len(s);
+    if(len >= 2 && s.end[-1] == '\n') {
+        if(s.end[-2] == '\\') return 2;
+        if(len >= 3 && s.end[-2] == '\r' && s.end[-3] == '\\') return 3;
+    }
+    return 0;
+}
+
+static size_t
+HH__ini_size(hh_span_t val) {
+    if(hh_span_len(val) == 0) return 0;
+    size_t size = 0;
+    size_t incr;
+    while(val.ptr < val.end) {
+        incr = HH__ini_skip(val);
+        if(incr > 0) {
+            val.ptr += incr;
+            continue;
+        }
+        size++;
+        val.ptr++;
+    }
+    return size;
+}
+
+static char*
+HH__ini_copy(hh_span_t val, char* buf) {
+    hh_darrclear(buf);
+    if(hh_span_len(val) == 0) return 0;
+    size_t incr;
+    while(val.ptr < val.end) {
+        incr = HH__ini_skip(val);
+        if(incr > 0) {
+            val.ptr += incr;
+            continue;
+        }
+        hh_darrput(buf, val.ptr[0]);
+        val.ptr++;
+    }
+    return buf;
+}
+
+_Bool
+hh_ini_parse(hh_ini_t* ini, hh_span_t* lines, hh_span_t* err) {
+    // initialize the top-level node
+    hh_ini_t* curr = ini;
+    memset(curr, 0, sizeof(hh_ini_t));
+    // iterate lines
+    char* buf = NULL;
+    for(hh_span_t line, line_ext; (line = hh_span_next(lines, .eol = 1, .trim = 1)).ptr;) {
+        if(hh_span_len(line) == 0 || line.ptr[0] == ';') 
+            continue;
+        if(line.end[-1] == '\\') {
+            if(hh_span_len(line_ext) == 0) line_ext = line;
+            continue;
+        }
+        if(hh_span_len(line_ext) != 0) {
+            line.ptr = line_ext.ptr;
+            line_ext.ptr = NULL;
+            line_ext.end = NULL;
+        }
+        *err = line;
+        if(line.ptr[0] != '[') {
+            hh_span_t raw_key = hh_span_next(&line, .trim = 1, .delim = "=");
+            hh_span_t raw_val = hh_span_next(&line, .trim = 1, .delim = ";");
+            size_t size_key = HH__ini_size(raw_key);
+            size_t size_val = HH__ini_size(raw_val);
+            buf = HH__ini_copy(raw_key, buf);
+            const char* val = hh_dict_insert(&curr->props,
+                buf, size_key, NULL, size_val + 1);
+            if(val == NULL) goto failure;
+            buf = HH__ini_copy(raw_val, buf);
+            hh_darrput(buf, '\0');
+            strcpy((char*) val, buf);
+            continue;
+        }
+        curr = ini;
+        line.ptr++;
+        // TODO: potential span_next bug
+        // `parser` includes the delim ] when delim_as_set is not supplied
+        // delimiters should not be included in the span
+        hh_span_t name = hh_span_next(&line, .delim = "]", .delim_as_set = 1);
+        // handling line continuations
+        for(size_t incr = SIZE_MAX; incr != 0 && hh_span_len(name) > 0; name.end -= incr) {
+            incr = 0;
+            incr = HH__ini_trim(name);
+            if(incr) continue;
+            incr = isspace(name.end[-1]) != 0;
+            if(incr) continue;
+            break;
+        }
+        hh_span_t name_part;
+        while((name_part = hh_span_next(&name, .trim = 1, .delim = ".")).ptr != NULL) {
+            buf = HH__ini_copy(name_part, buf);
+            // size_t incr = 0;
+            // while(incr < hh_darrlen(buf) && isspace(buf[incr])) ++incr;
+            hh_ini_t* temp = (void*) hh_dict_get_val(&curr->sections, 
+                buf, hh_darrlen(buf));
+            // if(incr != 0 && temp != NULL) goto failure;
+            if(temp != NULL) {
+                curr = (hh_ini_t*) temp;
+                continue;
+            }
+            curr = (hh_ini_t*) hh_dict_insert(&curr->sections, 
+                buf, hh_darrlen(buf), NULL, sizeof(hh_ini_t));
+            if(curr == NULL) goto failure;
+        }
+    }
+    hh_darrfree(buf);
+    memset(err, 0, sizeof(hh_span_t));
+    return 1;
+failure:
+    hh_darrfree(buf);
+    return 0;
+}
+
+void
+hh_ini_free(hh_ini_t* ini) {
+    if(ini == NULL) return;
+    hh_dict_it(&ini->sections, it) hh_ini_free((hh_ini_t*) it.val);
+    hh_dict_free(&ini->sections);
+    hh_dict_free(&ini->props);
+}
+
+static const hh_ini_t*
+HH__ini_query_section(const hh_ini_t* ini, hh_span_t* section) {
+    if(hh_span_len(*section) == 0) return NULL;
+    hh_span_t name = hh_span_next(section, .delim = ".");
+    // printf("query section: " span_fmt " [%zu]\n", span_fmt_args(name), hh_span_len(name));
+    return hh_dict_get_val(&ini->sections, name.ptr, hh_span_len(name));
+}
+
+const hh_ini_t*
+hh_ini_query_section(const hh_ini_t* ini, const char* section) {
+    hh_span_t parser = hh_span((char*) section);
+    return HH__ini_query_section(ini, &parser);
+}
+
+static char*
+HH__ini_query(const hh_ini_t* ini, hh_span_t section, const char* key) {
+    if(ini == NULL) goto failure;
+    const hh_ini_t* ini_sub = HH__ini_query_section(ini, &section);
+    // printf("%p\n", ini_sub);
+    if(ini_sub == NULL) {
+        const char* val = hh_dict_get_val(&ini->props, key, strlen(key));
+        if(val != NULL) return (char*) val;
+    } else return HH__ini_query(ini_sub, section, key);
+failure:
+    return NULL;
+}
+
+const char*
+hh_ini_query(const hh_ini_t* ini, const char* section, const char* key) {
+    return HH__ini_query(ini, hh_span((char*) section), key);
+}
+
+static _Bool
+HH__ini_vscanf(const hh_ini_t* ini, const char* section, 
+    const char* key, const char* fmt, int n, va_list arg) {
+    const char* val = hh_ini_query(ini, section, key);
+    if(val == NULL) return 0;
+    size_t len = strlen(val);
+    int rc = vsscanf(val, fmt, arg);
+    return rc == n && (size_t) ini->n == len;
+}
+
+_Bool
+HH__ini_scanf(const hh_ini_t* ini, const char* section, 
+    const char* key, const char* fmt, int n, ...) {
+    va_list arg;
+    va_start(arg, n);
+    _Bool ret = HH__ini_vscanf(ini, section, key, fmt, n, arg);
+    va_end(arg);
+    return ret;
+}
+
+// TODO: remove (or refactor and add declaration)
+#if 0
+void
+ini_dump(const hh_ini_t* ini, int level) {
+    hh_dict_it(&ini->props, it) {
+        printf("%*s\"" hh_span_fmt "\": \"" hh_span_fmt "\"\n", level * 2, "",
+            (int) it.size_key, (char*) it.key, 
+            (int) it.size_val, (char*) it.val);
+    }
+    hh_dict_it(&ini->sections, it) {
+        printf("%*s\"" hh_span_fmt "\"\n", level * 2, "", 
+            (int) it.size_key, (char*) it.key);
+        ini_dump(it.val, level + 1);
+    }
+}
+#endif
+
 // TODO: I don't think this should by default read the file into a darr
 // maybe make a separate function called hh_darr_read_entire_file
 char* 
@@ -2273,6 +2555,7 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define fp_wrap_t hh_fp_wrap_t
 #define fp_wrap hh_fp_wrap
 #define fp_unwrap hh_fp_unwrap
+#define ARGS_LENGTH HH_ARGS_LENGTH
 #define darrclear hh_darrclear
 #define darrfree hh_darrfree
 #define darrlast hh_darrlast
@@ -2350,6 +2633,12 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define args_free hh_args_free
 #define args_print_error hh_args_print_error
 #define args_print_usage hh_args_print_usage
+#define ini_t hh_ini_t
+#define ini_parse hh_ini_parse
+#define ini_free hh_ini_free
+#define ini_query_section hh_ini_query_section
+#define ini_query hh_ini_query
+#define ini_scanf hh_ini_scanf
 #define read_entire_file hh_read_entire_file
 #define skip_whitespace hh_skip_whitespace
 #define has_prefix hh_has_prefix
