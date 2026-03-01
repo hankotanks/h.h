@@ -173,7 +173,7 @@ typedef union {
 // hh_darrfree     frees the array and sets it to NULL
 // hh_darrlast     returns the last element by value
 // hh_darrput      inserts a value, returns assignment result
-// hh_darrputstr   pushes a string to a char* dynamic array (always ensures null-termination)
+// hh_darrputstr   pushes cstr to a char array (ensures null-termination), return pointer to start of str
 // hh_darrpop      removes the last element and returns it by value
 // hh_darradd      adds n zero-initialized elements to the array, returns the index to the 1st new element
 // hh_darrlen      returns array length
@@ -181,29 +181,17 @@ typedef union {
 // hh_darrswap     swaps the elements at 2 indices
 // hh_darrswapdel  deletes the ith element by swapping it with the last element, then popping
 
-// TODO: we can reduce the number of helper function calls and simplify logic surrounding arrnew and arrgrow
-#define hh_darrclear(arr)      ((arr == NULL) ? 0 : (hh_darrheader(arr)->len = 0))
-#define hh_darrfree(arr)       ((void) ((arr == NULL) ? (void) 0 : free(hh_darrheader(arr))), (arr) = NULL)
-#define hh_darrlast(arr)       ((arr)[hh_darrheader(arr)->len - 1])
-#define hh_darrput(arr, val)   ((void) hh_darrgrow(arr, 1), (arr)[(hh_darrheader(arr)->len)++] = (val))
-#define hh_darrpop(arr)        ((arr)[--(hh_darrheader(arr)->len)])
-#define hh_darradd(arr, n)     (HH__darradd((void**) &(arr), (n), sizeof *(arr)))
-#define hh_darrlen(arr)        ((arr == NULL) ? 0 : hh_darrheader(arr)->len)
-#define hh_darrcap(arr)        ((arr == NULL) ? 0 : hh_darrheader(arr)->cap)
-#define hh_darrswap(arr, i, j) (HH__darrswap((arr), (i), (j)))
-#define hh_darrswapdel(arr, i) (HH__darrswap((arr), (i), hh_darrlen(arr) - 1), hh_darrpop(arr))
- 
-// TODO: hh_darrputstr should be an expression macro as above,
-// even if it requires a helper function
-
-// append a string to a dynamic array
-// ensures null-termination
-#define hh_darrputstr(arr, str) do { \
-        if(hh_darrlen(arr) == 0 || (hh_darrlen(arr) != 0 && hh_darrlast(arr) != '\0')) hh_darrput(arr, '\0'); \
-        assert(hh_darrlast(arr) == '\0'); \
-        size_t _tmp = hh_darradd(arr, strlen(str)) - 1; \
-        strcpy((arr) + _tmp, (str)); \
-    } while(0)
+#define hh_darrclear(arr)       (((arr) == NULL) ? 0 : (hh_darrheader(arr)->len = 0))
+#define hh_darrfree(arr)        ((void) (((arr) == NULL) ? (void) 0 : free(hh_darrheader(arr))), (arr) = NULL)
+#define hh_darrlast(arr)        ((arr)[hh_darrheader(arr)->len - 1])
+#define hh_darrput(arr, val)    ((void) hh_darrgrow(arr, 1), (arr)[(hh_darrheader(arr)->len)++] = (val))
+#define hh_darrputstr(arr, str) (HH__darrputstr((void**) &(arr), (str)))
+#define hh_darrpop(arr)         ((arr)[--(hh_darrheader(arr)->len)])
+#define hh_darradd(arr, n)      (HH__darraddn((void**) &(arr), (n), sizeof *(arr)))
+#define hh_darrlen(arr)         (((arr) == NULL) ? 0 : hh_darrheader(arr)->len)
+#define hh_darrcap(arr)         (((arr) == NULL) ? 0 : hh_darrheader(arr)->cap)
+#define hh_darrswap(arr, i, j)  (HH__darrswap((arr), (i), (j)))
+#define hh_darrswapdel(arr, i)  (HH__darrswap((arr), (i), hh_darrlen(arr) - 1), hh_darrpop(arr))
 
 // type representing a memory arena
 typedef struct HH__arena hh_arena;
@@ -412,13 +400,14 @@ typedef struct {
 // dictionary entries are the same as hmap entries
 typedef hh_hmap_entry_t hh_dict_entry_t;
 
-// TODO: This should return const void* (as hh_hmap_insert does)
 // insert a key-value pair into the hashmap
+// NOTE: more than size_val bytes MUST NOT be written into the returned value
 const void*
 hh_dict_insert(hh_dict_t* map, const void* key, size_t size_key, const void* val, size_t size_val);
 // macro for inserting string keys
 // NOTE: the key stored in the hashmap is null-terminated,
-// which means hh_dict_get calls MUST also include a null-terminator with default hh_dict_comp_f behavior
+// which means hh_dict_get calls MUST also include a null-terminator 
+// (assuming default hh_dict_comp_f behavior_
 #define hh_dict_insert_with_cstr_key(map, key, val, size_val) hh_dict_insert(map, key, strlen(key), val, size_val)
 // insert an hh_dict_entry_t element
 // useful for copying from one hashmap to another
@@ -591,19 +580,20 @@ typedef struct {
 } hh_darrheader_t;
 
 // helper macros for dynamic array implementation
-#define hh_darrheader(arr)     (((hh_darrheader_t*) arr) - 1)
-#define hh_darrnew(arr)        ((arr) = HH__darrnew(HH_ARR_CAP_DEFAULT, sizeof(*arr)))
-#define hh_darrgrow(arr, n)    (HH__darrgrow((void**) &(arr), (n), sizeof(*(arr))), (arr))
+#define hh_darrheader(arr)  (((hh_darrheader_t*) arr) - 1)
+#define hh_darrgrow(arr, n) (HH__darrgrow((void**) &(arr), (n), sizeof(*(arr))), (arr))
 
 // helper functions for dynamic array
-void*
-HH__darrnew(size_t cap, size_t elem_size);
 void 
-HH__darrgrow(void** arrp, size_t n, size_t elem_size);
+HH__darrgrow(void** arr_ptr, size_t n, size_t elem_size);
 size_t
-HH__darradd(void** arrp, size_t n, size_t elem_size);
+HH__darraddn(void** arr_ptr, size_t n, size_t elem_size);
+// swaps two values, used for darrswap and darrswapdel
 void
-HH__darrswap(void* arrp, size_t i, size_t j);
+HH__darrswap(void* arr, size_t i, size_t j);
+// ensures null-termination and reallocation
+char*
+HH__darrputstr(void** arr_ptr, const char* str);
 
 // arena type
 // placed here because the user should never have to interact with it
@@ -847,19 +837,10 @@ hh_calloc_checked(size_t num, size_t size) {
     return ptr;
 }
 
-void*
-HH__darrnew(size_t cap, size_t elem_size) {
-    HH_ASSERT(elem_size > 0, "HH__darrnew received invalid element size");
-    void* arr = (((hh_darrheader_t*) calloc(1, sizeof(hh_darrheader_t) + elem_size * cap)) + 1);
-    HH_ASSERT(arr != NULL, "HH__darrnew failed to allocate array");
-    hh_darrheader(arr)->len = 0;
-    hh_darrheader(arr)->cap = cap;
-    hh_darrheader(arr)->elem_size = elem_size;
-    return arr;
-}
-
 void 
 HH__darrgrow(void** arr_ptr, size_t n, size_t elem_size) {
+    HH_ASSERT(arr_ptr != NULL, "HH__darrgrow received NULL pointer");
+    HH_ASSERT(elem_size > 0, "HH__darrgrow received invalid element size");
     hh_darrheader_t* arr_hdr;
     if(*arr_ptr == NULL) {
         arr_hdr = calloc(1, sizeof(hh_darrheader_t) + elem_size * HH_MAX(n, HH_ARR_CAP_DEFAULT));
@@ -871,17 +852,15 @@ HH__darrgrow(void** arr_ptr, size_t n, size_t elem_size) {
         return;
     }
     arr_hdr = hh_darrheader(*arr_ptr);
-    if(arr_hdr->len + n >= arr_hdr->cap) {
-        while(arr_hdr->len + n >= arr_hdr->cap) arr_hdr->cap *= 2;
-        arr_hdr = realloc(arr_hdr, sizeof(hh_darrheader_t) + arr_hdr->cap * arr_hdr->elem_size);
-        HH_ASSERT(arr_hdr != NULL, "HH__darrgrow failed to allocate array");
-        *arr_ptr = (void*) (arr_hdr + 1);
-    }
+    if(arr_hdr->len + n < arr_hdr->cap) return;
+    while(arr_hdr->len + n >= arr_hdr->cap) arr_hdr->cap *= 2;
+    arr_hdr = realloc(arr_hdr, sizeof(hh_darrheader_t) + arr_hdr->cap * arr_hdr->elem_size);
+    HH_ASSERT(arr_hdr != NULL, "HH__darrgrow failed to allocate array");
+    *arr_ptr = (void*) (arr_hdr + 1);
 }
 
 size_t
-HH__darradd(void** arr_ptr, size_t n, size_t elem_size) {
-    HH_ASSERT(elem_size > 0, "HH__darradd received invalid element size");
+HH__darraddn(void** arr_ptr, size_t n, size_t elem_size) {
     HH__darrgrow(arr_ptr, n, elem_size);
     size_t len = hh_darrlen(*arr_ptr);
     if(n > 0) {
@@ -891,11 +870,28 @@ HH__darradd(void** arr_ptr, size_t n, size_t elem_size) {
     return len;
 }
 
+char*
+HH__darrputstr(void** arr_ptr, const char* str) {
+    HH_ASSERT(arr_ptr != NULL, "HH__darrputstr received NULL pointer");
+    HH_ASSERT(arr_ptr[0] == NULL || (arr_ptr[0] != NULL && hh_darrheader(arr_ptr[0])->elem_size == 1), 
+        "HH__darrputstr received an array with elem_size > 1");
+    // determine if the array currently ends in a null terminator (n == 0)
+    size_t n = 0;
+    if(hh_darrlen(*arr_ptr) == 0) n = 1;
+    else if((hh_darrlen(*arr_ptr) != 0 && (((char**) arr_ptr)[0] + hh_darrlen(*arr_ptr) - 1)[0] != '\0')) n = 1;
+    size_t idx = HH__darraddn(arr_ptr, ((str == NULL) ? 0 : strlen(str)) + n, 1);
+    HH_ASSERT_UNREACHABLE((n == 0 && idx > 0) || n > 0);
+    if(str == NULL && n > 0) ((char**) arr_ptr)[0][idx] = '\0';
+    else strcpy(((char**) arr_ptr)[0] + (idx -= (n == 0)), (str));
+    return ((char**) arr_ptr)[0] + idx;
+}
+
 void
 HH__darrswap(void* arr, size_t i, size_t j) {
     HH_ASSERT(arr != NULL, "HH__darrswap received NULL array");
     HH_ASSERT(hh_darrlen(arr) > 0, "HH__darrswap received array with 0 elements");
-    HH_ASSERT(i < hh_darrlen(arr) && j < hh_darrlen(arr), "HH__darrswap received invalid indices (i: %zu, j: %zu, len: %zu)", i, j, hh_darrlen(arr));
+    HH_ASSERT(i < hh_darrlen(arr) && j < hh_darrlen(arr), 
+        "HH__darrswap received invalid indices (i: %zu, j: %zu, len: %zu)", i, j, hh_darrlen(arr));
     if(i == j) return;
     size_t elem_size = hh_darrheader(arr)->elem_size;
     char* elem_i = ((char*) arr) + i * elem_size;
@@ -1564,6 +1560,7 @@ HH__flag_value_name(hh_flag_opt opt, const hh_flag_type* type) {
     return NULL;
 }
 
+// NOTE: I have no excuse for this
 #define HH__FLAG_FMT "%s-%s%.*s%s%s%s%s%s%s"
 #define HH__FLAG_FMT_ARGS(opt, type) \
         ((opt).required) ? "" : "[", \
