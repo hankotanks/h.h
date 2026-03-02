@@ -135,9 +135,10 @@
 #define HH_STRINGIFY_BOOL(x) ((x) ? "true" : "false")
 
 // standard assertion with variadic error message
+// assertion failures are the fault of the developer
 #define HH_ASSERT(cond, ...) do { if(cond) break; HH_ERR(__VA_ARGS__); assert(cond); } while(0)
 #define HH_ASSERT_UNREACHABLE(cond) HH_ASSERT(cond, "Unreachable!")
-// used to distinguish parameter invariant violation from logic assertions
+// invariant violation assertion failures are the fault of the 'user'
 #define HH_ASSERT_INVARIANT(cond) HH_ASSERT(cond, "Invariant violated: %s", HH_STRINGIFY(cond))
 // this is an assertion that will execute the statement 
 // or block that follows it before exiting
@@ -517,6 +518,10 @@ hh_ini_query(const hh_ini_t* ini, const char* section, const char* key);
 // returns truthy on success
 #define hh_ini_scanf(ini, section, key, fmt, ...) \
     HH__ini_scanf(ini, section, key, fmt " %n", HH_ARGS_LENGTH(__VA_ARGS__), __VA_ARGS__, &((ini)->n))
+// prints the tree structure to the given stream
+// NOTE: intended for debugging primarily
+void
+hh_ini_dump(const hh_ini_t* ini, FILE* stream);
 
 // reads an entire file given by path
 // returns a dynamic array with file contents (free with hh_darrfree)
@@ -795,6 +800,10 @@ struct HH__args_t {
 const void*
 HH__args_add_flag(hh_args_t* args, hh_flag_type type, hh_flag_opt opt);
 
+#ifndef HH_INI_INDENT
+#define HH_INI_INDENT 2
+#endif // not HH_INI_INDENT
+
 // implementation for hh_ini_scanf
 // using HH_ARGS_LENGTH and the %n format specifier, 
 // this function can check
@@ -892,7 +901,7 @@ HH__darrputstr(void** arr_ptr, const char* str) {
 void
 HH__darrswap(void* arr, size_t i, size_t j) {
     HH_ASSERT_INVARIANT(arr != NULL);
-    HH_ASSERT_INVARIANT(hh_darrlen(arr) > 0); // TODO: Is this a good invariant?
+    HH_ASSERT_INVARIANT(hh_darrlen(arr) > 0);
     HH_ASSERT_INVARIANT(i < hh_darrlen(arr) && j < hh_darrlen(arr));
     if(i == j) return;
     size_t elem_size = hh_darrheader(arr)->elem_size;
@@ -1229,10 +1238,6 @@ HH__hmap_comp_generic(const hh_hmap_t* map, const void* fst, const void* snd) {
 
 const void*
 hh_hmap_insert(hh_hmap_t* map, const void* key, const void* val) {
-    // TODO: All HH_ASSERTs used for parameter validation
-    // could be replace with something like HH_VALIDATE to distinguish them
-    // * validations are the users' fault
-    // * asserts are the developer's fault
     HH_ASSERT_INVARIANT(map != NULL);
     HH_ASSERT_INVARIANT(key != NULL);
     // initialize map
@@ -2284,6 +2289,7 @@ hh_ini_parse(hh_ini_t* ini, hh_span_t* lines, hh_span_t* err) {
             continue;
         }
         curr = ini;
+        // advance past '['
         line.ptr++;
         // TODO: potential span_next bug
         // `parser` includes the delim ] when delim_as_set is not supplied
@@ -2383,29 +2389,29 @@ HH__ini_scanf(const hh_ini_t* ini, const char* section,
     return ret;
 }
 
-// TODO: remove (or refactor and add declaration)
-#if 0
 void
-ini_dump(const hh_ini_t* ini, int level) {
+HH__ini_dump(const hh_ini_t* ini, FILE* stream, int level) {
     hh_dict_it(&ini->props, it) {
-        printf("%*s\"" hh_span_fmt "\": \"" hh_span_fmt "\"\n", level * 2, "",
-            (int) it.size_key, (char*) it.key, 
+        fprintf(stream, "%*s\"" hh_span_fmt "\": \"" hh_span_fmt "\"\n", level * HH_INI_INDENT, "",
+            (int) it.size_key, (char*) it.key,
             (int) it.size_val, (char*) it.val);
     }
     hh_dict_it(&ini->sections, it) {
-        printf("%*s\"" hh_span_fmt "\"\n", level * 2, "", 
+        fprintf(stream, "%*s\"" hh_span_fmt "\"\n", level * HH_INI_INDENT, "", 
             (int) it.size_key, (char*) it.key);
-        ini_dump(it.val, level + 1);
+        HH__ini_dump(it.val, stream, level + 1);
     }
 }
-#endif
 
-// TODO: I don't think this should by default read the file into a darr
-// maybe make a separate function called hh_darr_read_entire_file
+void
+hh_ini_dump(const hh_ini_t* ini, FILE* stream) {
+    HH__ini_dump(ini, stream, 0);
+}
+
 char* 
 hh_read_entire_file(const char* path) {
     FILE* f = fopen(path, "rb");
-    char* f_buf = NULL;
+    char* buf = NULL;
     if(f == NULL) {
         HH_ERR("Failed to open file at path [%s].", path);
         return NULL;
@@ -2421,22 +2427,21 @@ hh_read_entire_file(const char* path) {
     }
     unsigned long size = (unsigned long) size_temp;
     rewind(f);
-    (void) hh_darradd(f_buf, size);
-    if(f_buf == NULL) {
+    buf = calloc(size + 1, sizeof(char*));
+    if(buf == NULL) {
         HH_ERR("Failed to allocate buffer for file contents [%s].", path);
         goto failure;
     }
-    size_t read_size = fread(f_buf, 1, size, f);
-    if(read_size != (size_t) size) {
+    size_t read_size = fread(buf, 1, size, f);
+    if(read_size != size) {
         HH_ERR("Failed to read entire file into buffer [%s].", path);
         goto failure;
     }
-    (void) hh_darradd(f_buf, '\0');
     fclose(f);
-    return f_buf;
+    return buf;
 failure:
     fclose(f);
-    hh_darrfree(f_buf);
+    free(buf);
     return NULL;
 }
 

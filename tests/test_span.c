@@ -52,7 +52,7 @@ main(void) {
     }
     ASSERT(darrlen(poses) == 689, "Failed to read correct number of lines");
     // free original content
-    darrfree(contents);
+    free(contents);
     // calculate average position
     double pose_avg[3] = {0};
     for(size_t i = 0; i < darrlen(poses); ++i) {
