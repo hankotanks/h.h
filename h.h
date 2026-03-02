@@ -114,7 +114,7 @@
 #define HH_MIN(x, y) (((x) < (y)) ? (x) : (y))
 
 // array length (ONLY for stack-allocated arrays)
-#define HH_ARR_LEN(arr) (sizeof(arr) / sizeof((arr)[0]))
+#define HH_ARR_LEN(arr) (((arr) == NULL) ? 0 : (sizeof(arr) / sizeof((arr)[0])))
 
 // useful attributes for function declarations
 #if defined(__GNUC__) || defined(__clang__)
@@ -137,6 +137,8 @@
 // standard assertion with variadic error message
 #define HH_ASSERT(cond, ...) do { if(cond) break; HH_ERR(__VA_ARGS__); assert(cond); } while(0)
 #define HH_ASSERT_UNREACHABLE(cond) HH_ASSERT(cond, "Unreachable!")
+// used to distinguish parameter invariant violation from logic assertions
+#define HH_ASSERT_INVARIANT(cond) HH_ASSERT(cond, "Invariant violated: %s", HH_STRINGIFY(cond))
 // this is an assertion that will execute the statement 
 // or block that follows it before exiting
 #define HH_ASSERT_BEFORE(cond) for(; !(cond); assert(cond))
@@ -588,9 +590,11 @@ void
 HH__darrgrow(void** arr_ptr, size_t n, size_t elem_size);
 size_t
 HH__darraddn(void** arr_ptr, size_t n, size_t elem_size);
+
 // swaps two values, used for darrswap and darrswapdel
 void
 HH__darrswap(void* arr, size_t i, size_t j);
+
 // ensures null-termination and reallocation
 char*
 HH__darrputstr(void** arr_ptr, const char* str);
@@ -839,8 +843,8 @@ hh_calloc_checked(size_t num, size_t size) {
 
 void 
 HH__darrgrow(void** arr_ptr, size_t n, size_t elem_size) {
-    HH_ASSERT(arr_ptr != NULL, "HH__darrgrow received NULL pointer");
-    HH_ASSERT(elem_size > 0, "HH__darrgrow received invalid element size");
+    HH_ASSERT_INVARIANT(arr_ptr != NULL);
+    HH_ASSERT_INVARIANT(elem_size > 0);
     hh_darrheader_t* arr_hdr;
     if(*arr_ptr == NULL) {
         arr_hdr = calloc(1, sizeof(hh_darrheader_t) + elem_size * HH_MAX(n, HH_ARR_CAP_DEFAULT));
@@ -872,9 +876,8 @@ HH__darraddn(void** arr_ptr, size_t n, size_t elem_size) {
 
 char*
 HH__darrputstr(void** arr_ptr, const char* str) {
-    HH_ASSERT(arr_ptr != NULL, "HH__darrputstr received NULL pointer");
-    HH_ASSERT(arr_ptr[0] == NULL || (arr_ptr[0] != NULL && hh_darrheader(arr_ptr[0])->elem_size == 1), 
-        "HH__darrputstr received an array with elem_size > 1");
+    HH_ASSERT_INVARIANT(arr_ptr != NULL);
+    HH_ASSERT_INVARIANT(arr_ptr[0] == NULL || (arr_ptr[0] != NULL && hh_darrheader(arr_ptr[0])->elem_size == 1));
     // determine if the array currently ends in a null terminator (n == 0)
     size_t n = 0;
     if(hh_darrlen(*arr_ptr) == 0) n = 1;
@@ -888,10 +891,9 @@ HH__darrputstr(void** arr_ptr, const char* str) {
 
 void
 HH__darrswap(void* arr, size_t i, size_t j) {
-    HH_ASSERT(arr != NULL, "HH__darrswap received NULL array");
-    HH_ASSERT(hh_darrlen(arr) > 0, "HH__darrswap received array with 0 elements");
-    HH_ASSERT(i < hh_darrlen(arr) && j < hh_darrlen(arr), 
-        "HH__darrswap received invalid indices (i: %zu, j: %zu, len: %zu)", i, j, hh_darrlen(arr));
+    HH_ASSERT_INVARIANT(arr != NULL);
+    HH_ASSERT_INVARIANT(hh_darrlen(arr) > 0); // TODO: Is this a good invariant?
+    HH_ASSERT_INVARIANT(i < hh_darrlen(arr) && j < hh_darrlen(arr));
     if(i == j) return;
     size_t elem_size = hh_darrheader(arr)->elem_size;
     char* elem_i = ((char*) arr) + i * elem_size;
@@ -1145,7 +1147,7 @@ hh_span_next_opt(hh_span_t* span, hh_span_opt opt) {
         *err = prev; \
         return (err_ret); \
     } \
-    HH_ASSERT_UNREACHABLE(token.end != NULL);
+    HH_ASSERT_INVARIANT(token.end != NULL);
 
 #define HH__SPAN_EPILOGUE(err_ret, err_cond) \
     if(err_cond) { \
@@ -1157,46 +1159,46 @@ hh_span_next_opt(hh_span_t* span, hh_span_opt opt) {
 double
 hh_span_next_opt_lf(hh_span_t* span, hh_span_opt opt, hh_span_t* err) {
 #ifdef HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
-#define HH__SPAN_ERR_RET HUGE_VAL
+#define HH__SPAN_ERROR HUGE_VAL
 #else
-#define HH__SPAN_ERR_RET 0.0
+#define HH__SPAN_ERROR 0.0
 #endif // HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
-    HH__SPAN_PROLOGUE(HH__SPAN_ERR_RET);
+    HH__SPAN_PROLOGUE(HH__SPAN_ERROR);
     char* end;
     double val = strtod(token.ptr, &end);
-    HH__SPAN_EPILOGUE(HH__SPAN_ERR_RET, end == token.ptr || end != token.end || errno == ERANGE);
+    HH__SPAN_EPILOGUE(HH__SPAN_ERROR, end == token.ptr || end != token.end || errno == ERANGE);
     return val;
-#undef HH__SPAN_ERR_RET
+#undef HH__SPAN_ERROR
 }
 
 long
 hh_span_next_opt_ld(hh_span_t* span, hh_span_opt opt, hh_span_t* err) {
 #ifdef HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
-#define HH__SPAN_ERR_RET LONG_MAX
+#define HH__SPAN_ERROR LONG_MAX
 #else
-#define HH__SPAN_ERR_RET 0
+#define HH__SPAN_ERROR 0
 #endif // HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
-    HH__SPAN_PROLOGUE(HH__SPAN_ERR_RET);
+    HH__SPAN_PROLOGUE(HH__SPAN_ERROR);
     char* end;
     long val = strtol(token.ptr, &end, 10);
-    HH__SPAN_EPILOGUE(HH__SPAN_ERR_RET, end == token.ptr || end != token.end || errno == ERANGE);
+    HH__SPAN_EPILOGUE(HH__SPAN_ERROR, end == token.ptr || end != token.end || errno == ERANGE);
     return val;
-#undef HH__SPAN_ERR_RET
+#undef HH__SPAN_ERROR
 }
 
 size_t
 hh_span_next_opt_zu(hh_span_t* span, hh_span_opt opt, hh_span_t* err) {
 #ifdef HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
-#define HH__SPAN_ERR_RET ULONG_MAX
+#define HH__SPAN_ERROR ULONG_MAX
 #else
-#define HH__SPAN_ERR_RET 0
+#define HH__SPAN_ERROR 0
 #endif // HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
-    HH__SPAN_PROLOGUE(HH__SPAN_ERR_RET);
+    HH__SPAN_PROLOGUE(HH__SPAN_ERROR);
     char* end;
     size_t val = strtoul(token.ptr, &end, 10);
-    HH__SPAN_EPILOGUE(HH__SPAN_ERR_RET, end == token.ptr || end != token.end || errno == ERANGE);
+    HH__SPAN_EPILOGUE(HH__SPAN_ERROR, end == token.ptr || end != token.end || errno == ERANGE);
     return val;
-#undef HH__SPAN_ERR_RET
+#undef HH__SPAN_ERROR
 }
 
 #undef HH__SPAN_PROLOGUE
@@ -1231,11 +1233,11 @@ hh_hmap_insert(hh_hmap_t* map, const void* key, const void* val) {
     // could be replace with something like HH_VALIDATE to distinguish them
     // * validations are the users' fault
     // * asserts are the developer's fault
-    HH_ASSERT(map != NULL && key != NULL, 
-        "hh_hmap_insert received malformed arguments");
+    HH_ASSERT_INVARIANT(map != NULL);
+    HH_ASSERT_INVARIANT(key != NULL);
     // initialize map
     if(map->buckets == NULL) {
-        HH_ASSERT(map->size_key > 0, "hh_hmap_t key size must be non-zero");
+        HH_ASSERT_INVARIANT(map->size_key > 0);
         if(map->bucket_count == 0) map->bucket_count = HH_BUCKET_COUNT;
         map->buckets = calloc(map->bucket_count, sizeof(char*));
         if(map->buckets == NULL) return NULL;
@@ -1257,8 +1259,9 @@ hh_hmap_insert(hh_hmap_t* map, const void* key, const void* val) {
 
 hh_hmap_entry_t
 hh_hmap_get(const hh_hmap_t* map, const void* key) {
-    HH_ASSERT(map != NULL && key != NULL && map->size_key > 0, 
-        "hh_hmap_get received malformed arguments");
+    HH_ASSERT_INVARIANT(map != NULL);
+    HH_ASSERT_INVARIANT(key != NULL);
+    HH_ASSERT_INVARIANT(map->size_key > 0);
     if(map->buckets == NULL) goto failure;
     // get correct bucket
     size_t idx = HH__hmap_hash_generic(map, key);
@@ -1286,8 +1289,9 @@ hh_hmap_get_val(const hh_hmap_t* map, const void* key) {
 
 _Bool
 hh_hmap_remove(hh_hmap_t* map, const void* key) {
-    HH_ASSERT(map != NULL && key != NULL && map->size_key > 0, 
-        "hh_hmap_remove received malformed arguments");
+    HH_ASSERT_INVARIANT(map != NULL);
+    HH_ASSERT_INVARIANT(key != NULL);
+    HH_ASSERT_INVARIANT(map->size_key > 0);
     // get corresponding entry
     char* val = (char*) hh_hmap_get_val(map, key);
     if(val == NULL) return 0;
@@ -1307,7 +1311,7 @@ hh_hmap_remove(hh_hmap_t* map, const void* key) {
 
 hh_hmap_entry_t
 HH__hmap_it_begin(const hh_hmap_t* map) {
-    HH_ASSERT(map != NULL, "hh_dict iterator received malformed arguments");
+    HH_ASSERT_INVARIANT(map != NULL);
     if(map->buckets == NULL) goto finish;
     // scan all buckets until a non-empty one is found
     for(size_t idx = 0; idx < map->bucket_count; ++idx) {
@@ -1326,7 +1330,7 @@ finish:
 
 void
 HH__hmap_it_next(const hh_hmap_t* map, hh_hmap_entry_t* entry) {
-    HH_ASSERT(map != NULL, "hh_dict iterator received malformed arguments");
+    HH_ASSERT_INVARIANT(map != NULL);
     const char* entry_begin;
     size_t idx;
     // compute the bucket index of the entry
@@ -1352,7 +1356,7 @@ HH__hmap_it_next(const hh_hmap_t* map, hh_hmap_entry_t* entry) {
 
 void
 hh_hmap_free(hh_hmap_t* map) {
-    HH_ASSERT(map != NULL, "hh_hmap_free received malformed arguments");
+    HH_ASSERT_INVARIANT(map != NULL);
     const char* key;
     const char* val;
     if(map->buckets == NULL) return;
@@ -1387,8 +1391,9 @@ HH__dict_comp_generic(const hh_dict_t* map, const void* fst, size_t size_fst, co
 
 const void*
 hh_dict_insert(hh_dict_t* map, const void* key, size_t size_key, const void* val, size_t size_val) {
-    HH_ASSERT(map != NULL && key != NULL && size_key > 0, 
-        "hh_dict_insert received malformed arguments");
+    HH_ASSERT_INVARIANT(map != NULL);
+    HH_ASSERT_INVARIANT(key != NULL);
+    HH_ASSERT_INVARIANT(size_key > 0);
     // initialize map
     if(map->buckets == NULL) {
         if(map->bucket_count == 0) map->bucket_count = HH_BUCKET_COUNT;
@@ -1423,8 +1428,9 @@ hh_dict_insert_entry(hh_dict_t* map, const hh_dict_entry_t* entry) {
 
 hh_dict_entry_t
 hh_dict_get(const hh_dict_t* map, const void* key, size_t size_key) {
-    HH_ASSERT(map != NULL && key != NULL && size_key > 0, 
-        "hh_dict_get received malformed arguments");
+    HH_ASSERT_INVARIANT(map != NULL);
+    HH_ASSERT_INVARIANT(key != NULL);
+    HH_ASSERT_INVARIANT(size_key > 0);
     if(map->buckets == NULL) return (hh_dict_entry_t) {0};
     // get correct bucket
     size_t idx = HH__dict_hash_generic(map, key, size_key);
@@ -1451,8 +1457,9 @@ hh_dict_get_val(const hh_dict_t* map, const void* key, size_t size_key) {
 
 _Bool
 hh_dict_remove(hh_dict_t* map, const void* key, size_t size_key) {
-    HH_ASSERT(map != NULL && key != NULL && size_key > 0, 
-        "hh_dict_remove received malformed arguments");
+    HH_ASSERT_INVARIANT(map != NULL);
+    HH_ASSERT_INVARIANT(key != NULL);
+    HH_ASSERT_INVARIANT(size_key > 0);
     // get corresponding entry
     hh_dict_entry_t entry = hh_dict_get(map, key, size_key);
     if(entry.val == NULL) return 0;
@@ -1481,7 +1488,7 @@ HH__dict_it_helper(hh_dict_entry_t* entry, const char* entry_begin) {
 
 hh_dict_entry_t
 HH__dict_it_begin(const hh_dict_t* map) {
-    HH_ASSERT(map != NULL, "hh_dict iterator received malformed arguments");
+    HH_ASSERT_INVARIANT(map != NULL);
     if(map->buckets == NULL) goto finish;
     // scan all buckets until a non-empty one is found
     hh_dict_entry_t entry;
@@ -1499,7 +1506,7 @@ finish:
 
 void
 HH__dict_it_next(const hh_dict_t* map, hh_dict_entry_t* entry) {
-    HH_ASSERT(map != NULL, "hh_dict iterator received malformed arguments");
+    HH_ASSERT_INVARIANT(map != NULL);
     char* entry_begin;
     size_t idx;
     // compute the bucket index of the entry
@@ -1526,7 +1533,7 @@ found:
 
 void
 hh_dict_free(hh_dict_t* map) {
-    HH_ASSERT(map != NULL, "hh_dict_free received malformed arguments");
+    HH_ASSERT_INVARIANT(map != NULL);
     hh_dict_entry_t entry;
     if(map->buckets == NULL) return;
     for(size_t i = 0; i < map->bucket_count; ++i) {
@@ -1593,35 +1600,30 @@ hh_args_data_add_flag(struct HH__args_data* data, hh_flag_type type, hh_flag_opt
     HH_ASSERT(opt.flag != '\0' || opt.flag_long != NULL, 
         HH__ARGS_INVALID "Either short or long flag must be set");
     // ensure flag and flag_long don't already exist
-    if(opt.flag != '\0')
-        HH_ASSERT(!hh_dict_get_val(&data->flags, &opt.flag, 1), 
-            HH__ARGS_INVALID "Flag '" HH__FLAG_FMT "' already added", 
-            HH__FLAG_FMT_ARGS(opt, NULL));
-    if(opt.flag_long != NULL)
-        HH_ASSERT(!hh_dict_get_val_with_cstr_key(&data->flags_long, opt.flag_long),
-            HH__ARGS_INVALID "Long flag '" HH__FLAG_FMT "' already added", 
-            HH__FLAG_FMT_ARGS(opt, NULL));
+    HH_ASSERT(opt.flag != '\0' && !hh_dict_get_val(&data->flags, &opt.flag, 1), 
+        HH__ARGS_INVALID "Flag '" HH__FLAG_FMT "' already added", 
+        HH__FLAG_FMT_ARGS(opt, NULL));
+    HH_ASSERT(opt.flag_long != NULL && !hh_dict_get_val_with_cstr_key(&data->flags_long, opt.flag_long),
+        HH__ARGS_INVALID "Long flag '" HH__FLAG_FMT "' already added", 
+        HH__FLAG_FMT_ARGS(opt, NULL));
     // provided 'name' to boolean
-    if(type == HH_FLAG_BOOL) {
-        HH_ASSERT(opt.name == NULL, 
-            HH__ARGS_INVALID "Provided value name to boolean flag '" HH__FLAG_FMT "'", 
-            HH__FLAG_FMT_ARGS(opt, NULL));
-        HH_ASSERT(!opt.required, 
-            HH__ARGS_INVALID "Boolean flag '" HH__FLAG_FMT "' can't be required: ", 
-            HH__FLAG_FMT_ARGS(opt, NULL));
-    }
+    HH_ASSERT(type == HH_FLAG_BOOL && opt.name == NULL, 
+        HH__ARGS_INVALID "Provided value name to boolean flag '" HH__FLAG_FMT "'", 
+        HH__FLAG_FMT_ARGS(opt, NULL));
+    HH_ASSERT(type == HH_FLAG_BOOL && !opt.required, 
+        HH__ARGS_INVALID "Boolean flag '" HH__FLAG_FMT "' can't be required: ", 
+        HH__FLAG_FMT_ARGS(opt, NULL));
     // allocate
     struct HH__args_entry* entry = hh_arena_alloc(&data->entries, sizeof(*entry));
     if(entry == NULL) return NULL;
     // insert into hashmaps
-    if(opt.flag != '\0')
-        HH_ASSERT(hh_dict_insert(&data->flags, &opt.flag, 1, &entry, sizeof(uintptr_t)), 
-            HH__ARGS_INVALID "Failed to add flag '" HH__FLAG_FMT "' to hh_args_t", 
-            HH__FLAG_FMT_ARGS(opt, NULL));
-    if(opt.flag_long != NULL)
-        HH_ASSERT(hh_dict_insert_with_cstr_key(&data->flags_long, opt.flag_long, &entry, sizeof(uintptr_t)),
-            HH__ARGS_INVALID "Failed to add long flag '" HH__FLAG_FMT "' to hh_args_t: ", 
-            HH__FLAG_FMT_ARGS(opt, NULL));
+    HH_ASSERT(opt.flag != '\0' && hh_dict_insert(&data->flags, &opt.flag, 1, &entry, sizeof(uintptr_t)), 
+        HH__ARGS_INVALID "Failed to add flag '" HH__FLAG_FMT "' to hh_args_t", 
+        HH__FLAG_FMT_ARGS(opt, NULL));
+    HH_ASSERT(opt.flag_long != NULL && hh_dict_insert_with_cstr_key(&data->flags_long, opt.flag_long, &entry, sizeof(uintptr_t)),
+        HH__ARGS_INVALID "Failed to add long flag '" HH__FLAG_FMT "' to hh_args_t: ", 
+        HH__FLAG_FMT_ARGS(opt, NULL));
+    // assign and return
     entry->flag = opt;
     entry->type = type;
     return entry;
@@ -1644,7 +1646,7 @@ HH__args_data_init(void) {
 
 const void*
 HH__args_add_flag(hh_args_t* args, hh_flag_type type, hh_flag_opt opt) {
-    HH_ASSERT(args != NULL, "hh_args_t was NULL");
+    HH_ASSERT_INVARIANT(args != NULL);
     // initialize
     if(args->data == NULL) args->data = HH__args_data_init();
     // add flag and return handle to the value
@@ -1663,7 +1665,7 @@ HH__args_add_flag(hh_args_t* args, hh_flag_type type, hh_flag_opt opt) {
 
 hh_args_t*
 hh_args_add_command(hh_args_t* args, const char* name, const char* desc) {
-    HH_ASSERT(name != NULL, HH__ARGS_INVALID "Must provide command name");
+    HH_ASSERT_INVARIANT(name != NULL);
     // create a new child node
     size_t idx = hh_darradd(args->children, 1);
     hh_args_t* child = &args->children[idx];
@@ -1832,8 +1834,10 @@ invalid:
 
 const hh_args_t*
 hh_args_parse(hh_args_t* args, FILE* stream, int argc, char* argv[]) {
-    HH_ASSERT(args != NULL && argc > 0 && argv[argc] == NULL, "Parameters were malformed");
-    HH_ASSERT(args->parent == NULL, "Passed non-root hh_args_t to hh_args_parse");
+    HH_ASSERT_INVARIANT(args != NULL);
+    HH_ASSERT_INVARIANT(argc > 0);
+    HH_ASSERT_INVARIANT(argv[argc] == NULL);
+    HH_ASSERT_INVARIANT(args->parent == NULL);
     args->data->deepest_parsed = args;
     _Bool result = HH__args_parse_inner(args, argc - 1, argv + 1);
     // disregard error if [-h, --help] flag was passed
@@ -1957,7 +1961,8 @@ HH__args_print_error_helper(const hh_args_t* origin, FILE* stream) {
 
 void
 hh_args_print_error(const hh_args_t* args, FILE* stream) {
-    HH_ASSERT(args != NULL && stream != NULL, "Parameters were malformed");
+    HH_ASSERT_INVARIANT(args != NULL);
+    HH_ASSERT_INVARIANT(stream != NULL);
     const struct HH__args_error* err = &args->data->error;
     const hh_args_t* origin = args->data->deepest_parsed;
     HH_ASSERT_UNREACHABLE(origin != NULL);
@@ -2172,8 +2177,10 @@ HH__args_print_synopsis(const hh_args_t *args, FILE *stream, int argc, char *arg
 
 void
 hh_args_print_usage(const hh_args_t* args, FILE* stream, int argc, char* argv[]) {
-    HH_ASSERT(args != NULL && argc > 0 && argv[argc] == NULL, "Parameters were malformed");
-    HH_ASSERT(args->parent == NULL, "Passed non-root hh_args_t to hh_args_parse");
+    HH_ASSERT_INVARIANT(args != NULL);
+    HH_ASSERT_INVARIANT(argc > 0);
+    HH_ASSERT_INVARIANT(argv[argc] == NULL);
+    HH_ASSERT_INVARIANT(args->parent == NULL);
     fprintf(stream, "SYNOPSIS\n");
     HH__args_print_synopsis(args->data->deepest_parsed, stream, argc, argv);
     fputc('\n', stream);
@@ -2546,6 +2553,7 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define ASSERT_BEFORE HH_ASSERT_BEFORE
 #define ASSERT HH_ASSERT
 #define ASSERT_UNREACHABLE HH_ASSERT_UNREACHABLE
+#define ASSERT_INVARIANT HH_ASSERT_INVARIANT
 #define UNREACHABLE HH_UNREACHABLE
 #define malloc_checked hh_malloc_checked
 #define calloc_checked hh_calloc_checked
