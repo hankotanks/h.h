@@ -495,7 +495,7 @@ typedef struct HH__ini_t hh_ini_t;
 
 // parses an INI configuration file
 // return truthy on success
-// otherwise, the locaiton of the parsing failure is given by err
+// otherwise, the location of the parsing failure is given by err
 // INI sections are hierarchical (period-delineated) i.e. [section.sub]
 // whitespace around section titles is stripped
 // line continuations are fully supported (subsequent whitespace is skipped)
@@ -545,8 +545,6 @@ hh_memflip(char* ptr, const char* end);
 // reverses n bytes starting at ptr, in-place
 void 
 hh_memflipn(char* ptr, size_t n);
-//
-#endif // not HH__
 
 //
 //
@@ -568,7 +566,6 @@ hh_memflipn(char* ptr, size_t n);
 //
 //
 
-#ifdef HH__
 // helper definition for custom log blocks
 #ifdef HH_LOG
 #define HH_LOG_BLOCK(stream, name) for(uintptr_t \
@@ -853,8 +850,6 @@ struct HH__ini_t {
 // * that the entire property value was parsed
 _Bool
 HH__ini_scanf(const hh_ini_t* ini, const char* section, const char* key, const char* fmt, int n, ...);
-//
-#endif // HH__
 
 #ifdef HH_IMPLEMENTATION
 // implementation-exclusive includes
@@ -2624,6 +2619,8 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 }
 //
 #endif // HH_IMPLEMENTATION
+//
+#endif // HH__
 
 #ifndef HH__STRIP_PREFIXES
 //
