@@ -129,29 +129,28 @@
 #endif
 
 // stringify
-#define HH_STRINGIFY(x) HH_STRINGIFY_HELPER(x)
+#define HH_STRINGIFY(x) HH__STRINGIFY(x)
 // stringify booleans
 // example: printf("flag: %s\n", HH_STRINGIFY_BOOL(flag));
 #define HH_STRINGIFY_BOOL(x) ((x) ? "true" : "false")
 
+// concatenate two macro arguments
+#define HH_CONCATENATE(a, b) HH__CONCATENATE(a, b)
+
 // standard assertion with variadic error message
 // assertion failures are the fault of the developer
-#define HH_ASSERT(cond, ...) do { if(cond) break; HH_ERR(__VA_ARGS__); assert(cond); } while(0)
-#define HH_ASSERT_UNREACHABLE(cond) HH_ASSERT(cond, "Unreachable!")
+
+// accepts a condition expression and an optional format string & args
+#define HH_ASSERT(...) HH_CONCATENATE(HH__ASSERT, HH_HAS_ARGS(__VA_ARGS__))(__VA_ARGS__)
 // invariant violation assertion failures are the fault of the 'user'
 #define HH_ASSERT_INVARIANT(cond) HH_ASSERT(cond, "Invariant violated: %s", HH_STRINGIFY(cond))
-// this is an assertion that will execute the statement 
-// or block that follows it before exiting
-#define HH_ASSERT_BEFORE(cond) for(; !(cond); assert(cond))
 // use this for unreachable branches
 // for example, default cases in switch blocks
-#define HH_UNREACHABLE HH_ASSERT_UNREACHABLE(0)
+#define HH_UNREACHABLE HH_ASSERT(0, "Unreachable!")
 
 // wrappers that assert allocation success
-void*
-hh_malloc_checked(size_t size);
-void*
-hh_calloc_checked(size_t num, size_t size);
+#define hh_malloc_checked(size) HH__malloc_checked((size), __FILE__, __LINE__)
+#define hh_calloc_checked(num, size) HH__calloc_checked((num), (size), __FILE__, __LINE__)
 
 // union to easily pass around and store function pointers as data pointers
 // without breaking C99 conventions
@@ -168,6 +167,8 @@ typedef union {
 // returns the number of arguments in __VA_ARGS__
 // original source: https://groups.google.com/g/comp.std.c/c/d-6Mj5Lko_s?pli=1
 #define HH_ARGS_LENGTH(...) HH__ARGS_LENGTH(__VA_ARGS__, HH__ARGS_LENGTH_JOIN())
+// resolves to 0 when __VA_ARGS__ has exactly 1 argument, 0 otherwise
+#define HH_HAS_ARGS(...) HH__HAS_ARGS(__VA_ARGS__)
 
 // Adapted from...
 // stb_ds.h - v0.67 - public domain data structures - Sean Barrett 2019
@@ -490,11 +491,7 @@ void
 hh_args_print_usage(const hh_args_t* args, FILE* stream, int argc, char* argv[]);
 
 // a section node in an INI document tree
-typedef struct {
-    hh_dict_t sections;
-    hh_dict_t props;
-    int n;
-} hh_ini_t;
+typedef struct HH__ini_t hh_ini_t;
 
 // parses an INI configuration file
 // return truthy on success
@@ -538,6 +535,16 @@ hh_has_prefix(const char* str, const char* prefix);
 // returns truthy when the `str` ens with `suffix`
 _Bool
 hh_has_suffix(const char* str, const char* suffix);
+// swaps two blocks of memory (possibly separated by other data)
+// accepts differently-sized blocks
+void
+hh_memswap(char* fst, char* fst_end, char* snd, const char* snd_end);
+// reverses bytes between ptr and end, in-place
+void 
+hh_memflip(char* ptr, const char* end);
+// reverses n bytes starting at ptr, in-place
+void 
+hh_memflipn(char* ptr, size_t n);
 //
 #endif // not HH__
 
@@ -573,13 +580,32 @@ hh_has_suffix(const char* str, const char* suffix);
 #define HH_LOG_BLOCK(stream, name) if(0)
 #endif // HH_LOG
 
-// remove definition of this helper macro
-#define HH_STRINGIFY_HELPER(x) #x
+// helper for HH_STRINGIFY
+#define HH__STRINGIFY(x) #x
+
+// helper for HH_CONCATENATE
+#define HH__CONCATENATE(a, b) a##b
+
+// plain assert (if no format string is passed to HH_ASSERT)
+#define HH__ASSERT0(cond) assert(cond)
+// assert with message
+#define HH__ASSERT1(cond, ...) do { \
+    if((cond)) break; \
+    HH_ERR(__VA_ARGS__); \
+    assert(cond); \
+} while(0)
+
+// helpers for checked allocations
+// necessary to ensure the correct line number and file are logged
+void*
+HH__malloc_checked(size_t size, const char* file, int line);
+void*
+HH__calloc_checked(size_t num, size_t size, const char* file, int line);
 
 // initial capacity of dynamic array
-#ifndef HH_ARR_CAP_DEFAULT
-#define HH_ARR_CAP_DEFAULT 16
-#endif // not HH_ARR_CAP_DEFAULT
+#ifndef HH_DARR_INITIAL_CAPACITY
+#define HH_DARR_INITIAL_CAPACITY 16
+#endif // not HH_DARR_INITIAL_CAPACITY
 
 // internal array components
 typedef struct { 
@@ -693,6 +719,16 @@ HH__path_join(char* path, ...);
     24, 23, 22, 21, 20, 19, 18, 17, 16, 15, \
     14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
 
+#define HH__HAS_ARGS(...) HH__ARGS_LENGTH_128(__VA_ARGS__, \
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, )
+
 // if the following is defined
 // hh_span_next_lf, hh_span_next_ld, hh_span_next_zu, etc
 // will return huge values on failure.
@@ -804,6 +840,12 @@ HH__args_add_flag(hh_args_t* args, hh_flag_type type, hh_flag_opt opt);
 #define HH_INI_INDENT 2
 #endif // not HH_INI_INDENT
 
+struct HH__ini_t {
+    hh_dict_t sections;
+    hh_dict_t props;
+    int n;
+};
+
 // implementation for hh_ini_scanf
 // using HH_ARGS_LENGTH and the %n format specifier, 
 // this function can check
@@ -837,16 +879,26 @@ HH__ini_scanf(const hh_ini_t* ini, const char* section, const char* key, const c
 #endif // _WIN32
 
 void*
-hh_malloc_checked(size_t size) {
+HH__malloc_checked(size_t size, const char* file, int line) {
     void* ptr = malloc(size);
-    HH_ASSERT(ptr != NULL, "hh_malloc_checked failed to allocate %llu bytes", (unsigned long long) size);
+    if(ptr == NULL) {
+        fprintf(HH_ERR_STREAM, "ERROR [%s:%d]: "
+            "Failed to allocate %llu bytes\n", 
+            file, line, (unsigned long long) size);
+        abort();
+    }
     return ptr;
 }
 
 void*
-hh_calloc_checked(size_t num, size_t size) {
+HH__calloc_checked(size_t num, size_t size, const char* file, int line) {
     void* ptr = calloc(num, size);
-    HH_ASSERT(ptr != NULL, "hh_calloc_checked failed to allocate %llu bytes", (unsigned long long) size);
+    if(ptr == NULL) {
+        fprintf(HH_ERR_STREAM, "ERROR [%s:%d]: "
+            "Failed to allocate %llu objects [%llu bytes]\n", 
+            file, line, (unsigned long long) num, (unsigned long long) (size * num));
+        abort();
+    }
     return ptr;
 }
 
@@ -856,10 +908,10 @@ HH__darrgrow(void** arr_ptr, size_t n, size_t elem_size) {
     HH_ASSERT_INVARIANT(elem_size > 0);
     hh_darrheader_t* arr_hdr;
     if(*arr_ptr == NULL) {
-        arr_hdr = calloc(1, sizeof(hh_darrheader_t) + elem_size * HH_MAX(n, HH_ARR_CAP_DEFAULT));
+        arr_hdr = calloc(1, sizeof(hh_darrheader_t) + elem_size * HH_MAX(n, HH_DARR_INITIAL_CAPACITY));
         HH_ASSERT(arr_hdr != NULL, "HH__darrgrow failed to allocate array");
         arr_hdr->len = 0;
-        arr_hdr->cap = HH_MAX(n, HH_ARR_CAP_DEFAULT);
+        arr_hdr->cap = HH_MAX(n, HH_DARR_INITIAL_CAPACITY);
         arr_hdr->elem_size = elem_size;
         *arr_ptr = (void*) (arr_hdr + 1);
         return;
@@ -892,7 +944,7 @@ HH__darrputstr(void** arr_ptr, const char* str) {
     if(hh_darrlen(*arr_ptr) == 0) n = 1;
     else if((hh_darrlen(*arr_ptr) != 0 && (((char**) arr_ptr)[0] + hh_darrlen(*arr_ptr) - 1)[0] != '\0')) n = 1;
     size_t idx = HH__darraddn(arr_ptr, ((str == NULL) ? 0 : strlen(str)) + n, 1);
-    HH_ASSERT_UNREACHABLE((n == 0 && idx > 0) || n > 0);
+    HH_ASSERT((n == 0 && idx > 0) || n > 0);
     if(str == NULL && n > 0) ((char**) arr_ptr)[0][idx] = '\0';
     else strcpy(((char**) arr_ptr)[0] + (idx -= (n == 0)), (str));
     return ((char**) arr_ptr)[0] + idx;
@@ -1415,7 +1467,7 @@ hh_dict_insert(hh_dict_t* map, const void* key, size_t size_key, const void* val
     hh_darradd(map->buckets[idx], size_key + size_val + sizeof(size_t) * 2);
     // update entry sizes
     size_t* meta = (((size_t*) (map->buckets[idx] + len)) - 2);
-    HH_ASSERT_UNREACHABLE(meta[0] == 0 && meta[1] == 0);
+    HH_ASSERT(meta[0] == 0 && meta[1] == 0);
     *(meta++) = size_key;
     *(meta++) = size_val;
     // copy over entry
@@ -1558,7 +1610,7 @@ hh_dict_free(hh_dict_t* map) {
 static const char*
 HH__flag_value_name(hh_flag_opt opt, const hh_flag_type* type) {
     if(type == NULL) return NULL;
-    HH_ASSERT_UNREACHABLE(opt.name == NULL || type != HH_FLAG_BOOL);
+    HH_ASSERT(opt.name == NULL || type != HH_FLAG_BOOL);
     if(opt.name != NULL) return opt.name;
     switch(*type) {
     case HH_FLAG_BOOL:  return NULL;
@@ -1696,7 +1748,7 @@ HH__args_root(hh_args_t* args) {
 
 static struct HH__args_entry*
 HH__args_parse_entry_inclusive(hh_args_t* args, const char* argi, const char** val) {
-    HH_ASSERT_UNREACHABLE(args != NULL);
+    HH_ASSERT(args != NULL);
     if(argi == NULL) return NULL;
     size_t len = strlen(argi);
     const char* argi_split = NULL;
@@ -1952,11 +2004,11 @@ HH__args_print_error_helper(const hh_args_t* origin, FILE* stream) {
     if(origin->parent == NULL) {
         fprintf(stream, "command");
     } else {
-        HH_ASSERT_UNREACHABLE(origin->name != NULL);
+        HH_ASSERT(origin->name != NULL);
         fprintf(stream, "subcommand for '%s'", origin->name);
     }
     fputc(' ', stream);
-    HH_ASSERT_UNREACHABLE(len > 0);
+    HH_ASSERT(len > 0);
     fprintf(stream, "[must be one of: ");
     for(size_t i = 0; i < len; ++i) {
         fprintf(stream, "%s%s", origin->children[i].name, (i + 1 < len) ? ", " : "");
@@ -1970,7 +2022,7 @@ hh_args_print_error(const hh_args_t* args, FILE* stream) {
     HH_ASSERT_INVARIANT(stream != NULL);
     const struct HH__args_error* err = &args->data->error;
     const hh_args_t* origin = args->data->deepest_parsed;
-    HH_ASSERT_UNREACHABLE(origin != NULL);
+    HH_ASSERT(origin != NULL);
     // print descriptive error message
     switch(err->type) {
     case HH__ARGS_ERR_NONE: return;
@@ -1986,28 +2038,28 @@ hh_args_print_error(const hh_args_t* args, FILE* stream) {
         HH__args_print_error_helper(origin, stream);
         break;
     case HH__ARGS_ERR_FLAG_MISSING_VALUE:
-        HH_ASSERT_UNREACHABLE(err->entry != NULL);
+        HH_ASSERT(err->entry != NULL);
         fprintf(stream, "Flag '" HH__FLAG_FMT "' is missing a required value", 
             HH__FLAG_FMT_ARGS(err->entry->flag, &err->entry->type));
         break;
     case HH__ARGS_ERR_FLAG_INVALID_VALUE:
-        HH_ASSERT_UNREACHABLE(err->entry != NULL);
+        HH_ASSERT(err->entry != NULL);
         fprintf(stream, "Flag '" HH__FLAG_FMT "' received an invalid value: %s", 
             HH__FLAG_FMT_ARGS(err->entry->flag, &err->entry->type), err->extra);
         break;
     case HH__ARGS_ERR_FLAG_DUPLICATE:
-        HH_ASSERT_UNREACHABLE(err->entry != NULL);
+        HH_ASSERT(err->entry != NULL);
         fprintf(stream, "Flag '" HH__FLAG_FMT "' is passed more than once", 
             HH__FLAG_FMT_ARGS(err->entry->flag, &err->entry->type));
         break;
     case HH__ARGS_ERR_REQUIRED_FLAG_MISSING:
-        HH_ASSERT_UNREACHABLE(err->entry != NULL);
+        HH_ASSERT(err->entry != NULL);
         fprintf(stream, "Required flag '" HH__FLAG_FMT "' is missing", 
             HH__FLAG_FMT_ARGS(err->entry->flag, &err->entry->type));
         break;
     case HH__ARGS_ERR_FLAG_INCOMPATIBLE_WITH_COMMAND:
-        HH_ASSERT_UNREACHABLE(origin->parent != NULL);
-        HH_ASSERT_UNREACHABLE(origin->name != NULL);
+        HH_ASSERT(origin->parent != NULL);
+        HH_ASSERT(origin->name != NULL);
         fprintf(stream, "Flag '" HH__FLAG_FMT "' not supported by provided '%s' %s", 
             HH__FLAG_FMT_ARGS(err->entry->flag, &err->entry->type),
             origin->name, origin->parent->parent ? "subcommand" : "command");
@@ -2024,7 +2076,7 @@ HH__flag_width(const struct HH__args_entry* entry) {
     if(!entry->flag.required) col += 2;
     col += 2;
     if(entry->flag.flag == '\0') {
-        HH_ASSERT_UNREACHABLE(entry->flag.flag_long != NULL);
+        HH_ASSERT(entry->flag.flag_long != NULL);
         col += strlen(entry->flag.flag_long);
     }
     const char* name = HH__flag_value_name(entry->flag, &entry->type);
@@ -2044,7 +2096,7 @@ HH__args_print_usage_entry(const struct HH__args_entry* entry, FILE* stream,
     }
     HH__USAGE_OUT(HH__FLAG_FMT, HH__FLAG_FMT_ARGS_SHORT(entry->flag, &entry->type));
     col += HH__flag_width(entry);
-    HH_ASSERT_UNREACHABLE(padding == 0 || col <= padding);
+    HH_ASSERT(padding == 0 || col <= padding);
     HH__USAGE_OUT("%*s", (int) (padding - col - 1), "");
     if(entry->flag.desc != NULL) {
         HH__USAGE_OUT("%s", entry->flag.desc);
@@ -2063,7 +2115,7 @@ HH__args_print_usage_entry(const struct HH__args_entry* entry, FILE* stream,
 static size_t
 HH__args_print_usage_inner(const hh_args_t* args, FILE* stream,
     int argc, char* argv[], _Bool** levels, int last, size_t padding) {
-    HH_ASSERT_UNREACHABLE(HH_ARGS_USAGE_INDENT > 2);
+    HH_ASSERT(HH_ARGS_USAGE_INDENT > 2);
     size_t col = 0;
     for(size_t i = 0; i + 1 < hh_darrlen(*levels); ++i) {
         HH__USAGE_OUT("%s%*s", (*levels)[i] ? "│" : " ", HH_ARGS_USAGE_INDENT - 2, "");
@@ -2080,7 +2132,7 @@ HH__args_print_usage_inner(const hh_args_t* args, FILE* stream,
         col += 2 + strlen(exe);
     }
     // print description aligned to the second column
-    HH_ASSERT_UNREACHABLE(padding == 0 || col <= padding);
+    HH_ASSERT(padding == 0 || col <= padding);
     if(args->desc != NULL) {
         HH__USAGE_OUT("%*s%s", (int) (padding - col), "", args->desc);
     } else if(args->parent == NULL) {
@@ -2111,7 +2163,7 @@ HH__args_print_usage_inner(const hh_args_t* args, FILE* stream,
 
 static void
 HH__args_print_synopsis_cmds(const hh_args_t *args, FILE *stream, int argc, char *argv[]) {
-    HH_ASSERT_UNREACHABLE(args != NULL);
+    HH_ASSERT(args != NULL);
     if(args->parent != NULL) {
         HH__args_print_synopsis_cmds(args->parent, stream, argc, argv);
         fprintf(stream, "%s ", args->name);
@@ -2122,7 +2174,7 @@ HH__args_print_synopsis_cmds(const hh_args_t *args, FILE *stream, int argc, char
 
 static void
 HH__args_print_synopsis_flags(const hh_args_t *args, FILE *stream) {
-    HH_ASSERT_UNREACHABLE(args != NULL);
+    HH_ASSERT(args != NULL);
     if(args->parent != NULL) {
         HH__args_print_synopsis_flags(args->parent, stream);
     }
@@ -2140,7 +2192,7 @@ static void
 HH__args_print_synopsis(const hh_args_t *args, FILE *stream, int argc, char *argv[]) {
     while(hh_darrlen(args->children) == 1) args = &args->children[0];
     HH__args_print_synopsis_cmds(args, stream, argc, argv);
-    HH_ASSERT_UNREACHABLE(hh_darrlen(args->children) != 1);
+    HH_ASSERT(hh_darrlen(args->children) != 1);
     _Bool cont = 0;
     if(hh_darrlen(args->children) > 1) {
         _Bool sub_one = 0;
@@ -2463,6 +2515,43 @@ hh_has_suffix(const char* str, const char* suffix) {
     return len_suffix <= len_str && !strcmp(str + len_str - len_suffix, suffix);
 }
 
+// NOTE: Great information by Raymond Chen found here:
+// https://devblogs.microsoft.com/oldnewthing/20260101-00/?p=111955
+void
+hh_memswap(char* fst, char* fst_end, char* snd, const char* snd_end) {
+    HH_ASSERT_INVARIANT(fst != NULL);
+    HH_ASSERT_INVARIANT(fst_end != NULL);
+    HH_ASSERT_INVARIANT(snd != NULL);
+    HH_ASSERT_INVARIANT(snd_end != NULL);
+    HH_ASSERT_INVARIANT(fst <= fst_end);
+    HH_ASSERT_INVARIANT(fst_end <= snd);
+    HH_ASSERT_INVARIANT(snd <= snd_end);
+    hh_memflip(fst, fst_end);
+    hh_memflip(fst_end, snd);
+    hh_memflip(snd, snd_end);
+    hh_memflip(fst, snd_end);
+}
+
+void 
+hh_memflip(char* ptr, const char* end) {
+    HH_ASSERT_INVARIANT(ptr != NULL);
+    HH_ASSERT_INVARIANT(end != NULL);
+    HH_ASSERT_INVARIANT(ptr <= end);
+    hh_memflipn(ptr, (size_t) (end - ptr));
+}
+
+void 
+hh_memflipn(char* ptr, size_t n) {
+    HH_ASSERT_INVARIANT(ptr != NULL);
+    if(n == 0) return;
+    char temp;
+    for(size_t i = 0; i < n / 2; ++i) {
+        temp = ptr[i];
+        ptr[i] = ptr[n - 1 - i];
+        ptr[n - 1 - i] = temp;
+    }
+}
+
 /*-
  * Copyright (c) 2011 The NetBSD Foundation, Inc.
  * All rights reserved.
@@ -2555,9 +2644,7 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define LOG_APPEND HH_LOG_APPEND
 #define STRINGIFY HH_STRINGIFY
 #define STRINGIFY_BOOL HH_STRINGIFY_BOOL
-#define ASSERT_BEFORE HH_ASSERT_BEFORE
 #define ASSERT HH_ASSERT
-#define ASSERT_UNREACHABLE HH_ASSERT_UNREACHABLE
 #define ASSERT_INVARIANT HH_ASSERT_INVARIANT
 #define UNREACHABLE HH_UNREACHABLE
 #define malloc_checked hh_malloc_checked
@@ -2653,6 +2740,9 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define skip_whitespace hh_skip_whitespace
 #define has_prefix hh_has_prefix
 #define has_suffix hh_has_suffix
+#define memswap hh_memswap
+#define memflip hh_memflip
+#define memflipn hh_memflipn
 //
 #endif // HH_STRIP_PREFIXES
 //
