@@ -3,17 +3,6 @@
 #include <stddef.h>
 #include <string.h>
 
-size_t
-hh_hash_cstr(const void* ptr) {
-    const char* str = *((const char**) ptr);
-    return HH__hash_djb2(str, strlen(str));
-}
-
-int
-hh_comp_cstr(const void* fst, const void* snd) {
-    return strcmp(*((const char**) fst), *((const char**) snd));
-}
-
 char* randstr(size_t n) {
     static const char charset[] = \
         "abcdefghijklmnopqrstuvwxyz"
@@ -27,7 +16,7 @@ char* randstr(size_t n) {
     return str;
 }
 
-#define MAX_SZ 500
+#define MAX_SZ 1000
 #define MAX_KEY_SZ 1
 // #define DUMP_MAP
 
@@ -56,36 +45,31 @@ int main(void) {
     char key_temp[MAX_KEY_SZ + 1];
     char* key_temp2 = key_temp;
     entry_t* str2sz = NULL;
-    hh_hmapconfig(str2sz, .comp = hh_comp_cstr, .hash = hh_hash_cstr);
+    hh_hmapconfig(str2sz, .key_f.comp = hh_comp_cstr, .key_f.hash = hh_hash_cstr, .key_f.free = free );
     entry_t* repl;
     for(size_t i = 0, j = 0, k; i < MAX_SZ; ++i) {
         const char* key = randstr(MAX_KEY_SZ);
         repl = hh_hmapinsert(str2sz, &key, j);
-        printf("[%zu] inserted: (%s, %zu)\n", hh_hmaplen(str2sz), key, j);
+        printf("[%zu, %zu inserted: (%s, %zu)\n", hh_hmaplen(str2sz), hh_hmapheader(str2sz)->cap, key, j);
         dump(str2sz);
         j++;
         if(repl != NULL) {
-            printf("[%zu] replaced: (%s, %zu) with (%s, %zu)\n", hh_hmaplen(str2sz), repl->key, repl->val, key, j - 1);
+            printf("[%zu, %zu] replaced: (%s, %zu) with %zu\n", hh_hmaplen(str2sz), hh_hmapheader(str2sz)->cap, key, repl->val, j - 1);
             dump(str2sz);
-            free((char*) repl->key);
         }
         if(!randinrange(0, 2) && hh_hmaplen(str2sz) > 0) {
             k = randinrange(0, hh_hmaplen(str2sz));
             strcpy(key_temp, str2sz[k].key);
-            repl = hh_hmapremove(str2sz, &key_temp2);
-            printf("[%zu] removed: (%s, %zu)\n", hh_hmaplen(str2sz), repl->key, repl->val);
+            printf("[%zu, %zu] removed: %zu\n", hh_hmaplen(str2sz), hh_hmapheader(str2sz)->cap, *(size_t*) hh_hmapremove(str2sz, &key_temp2));
             dump(str2sz);
-            free((char*) repl->key);
         }
     }
 
     for(size_t i; hh_hmaplen(str2sz) > 0;) {
         i = randinrange(0, hh_hmaplen(str2sz));
         strcpy(key_temp, str2sz[i].key);
-        repl = hh_hmapremove(str2sz, &key_temp2);
-        printf("removed: (%s, %zu)\n", repl->key, repl->val);
+        printf("[%zu, %zu] removed: %zu\n", hh_hmaplen(str2sz), hh_hmapheader(str2sz)->cap, *(size_t*) hh_hmapremove(str2sz, &key_temp2));
         dump(str2sz);
-        free((char*) repl->key);
     }
 
     hh_hmapfree(str2sz);
