@@ -2,27 +2,30 @@
 #define HH_HMAP__
 
 #include "h.h"
+#include "hmap_old.h"
 
-typedef size_t (*hh_hash_f)(const void* ptr, size_t ptr_size);
-typedef int    (*hh_comp_f)(const void* fst, size_t fst_size, const void* snd, size_t snd_size);
+typedef size_t (*hh_hash_f)(const void* ptr);
+typedef int    (*hh_comp_f)(const void* fst, const void* snd);
 
 typedef struct {
-    size_t key_size;
     hh_hash_f hash;
     hh_comp_f comp;
     size_t reserve;
     size_t bucket_count;
 } hh_hmap_opt;
 
-#define hh_hmapconfig(map, ...)                (HH__hmapconfig((void**) &(map), sizeof(*(map)), (hh_hmap_opt) { __VA_ARGS__ }))
-#define hh_hmapinsert(map, key, key_size, val) (HH__hmapinsert((void**) &(map), (key), (key_size), (val), sizeof(*(val))))
-#define hh_hmaplen(map)                        (((map) == NULL) ? 0 : hh_hmapheader(map)->len)
-#define hh_hmapfree(map)                       (HH__hmapfree((void**) &(map)))
+#define hh_hmapconfig(map, ...)         (HH__hmapconfig((void**) &(map), hh_hmapprop(map), (hh_hmap_opt) { __VA_ARGS__ }))
+#define hh_hmaplen(map)                 (((map) == NULL) ? 0 : hh_hmapheader(map)->len)
+#define hh_hmapinsert(map, key_, val_)  (HH__hmapinsert((void**) &(map), hh_hmapprop(map), (key_)) ? \
+    ((map)[hh_hmapheader(map)->last].val = val_, &(map)[hh_hmaplen(map)]) : \
+    ((map)[hh_hmapheader(map)->last].val = val_, NULL))
 
 size_t
-hh_hmapget(void* map, const void* key, size_t key_size);
+hh_hmapget(const void* map, const void* key);
+void
+hh_hmapfree(const void* map);
 void*
-hh_hmapremove(void* map, const void* key, size_t key_size);
+hh_hmapremove(const void* map, const void* key);
 
 //
 //
@@ -44,229 +47,177 @@ hh_hmapremove(void* map, const void* key, size_t key_size);
 //
 //
 
-// hmap header
-typedef struct {
-    size_t len;
-    size_t cap;
-    size_t key_size;
-    size_t val_size;
+struct hh_hmapprop_t {
+    size_t sz_key, off_key;
+    size_t sz_val, off_val;
+    size_t sz_entry;
+};
+
+#define hh_hmapprop(map) ((struct hh_hmapprop_t) { \
+    .sz_key = sizeof((map)->key), .off_key = (size_t) ((char*)&(map)->key - (char*)(map)), \
+    .sz_val = sizeof((map)->val), .off_val = (size_t) ((char*)&(map)->val - (char*)(map)), \
+    .sz_entry = sizeof(*(map)) })
+
+struct hh_hmapheader_t {
+    struct hh_hmapprop_t prop;
     hh_hash_f hash;
     hh_comp_f comp;
-    size_t bucket_count;
-    char** buckets;
-    void** bucket_lookup;
-} hh_hmapheader_t;
+    size_t len, cap, last, bucket_count;
+    size_t** buckets;
+};
 
-#define hh_hmapheader(arr)  (((hh_hmapheader_t*) arr) - 1)
+#define hh_hmapheader(arr)  (((struct hh_hmapheader_t*) arr) - 1)
 
-void
-HH__hmapconfig(void** map_ptr, size_t val_size, hh_hmap_opt opt);
-void*
-HH__hmapinsert(void** map_ptr, void* key, size_t key_size, void* val, size_t val_size);
-void
-HH__hmapfree(void** map_ptr);
-
+struct hh_hmapheader_t*
+HH__hmapconfig(void** map_ptr, struct hh_hmapprop_t prop, hh_hmap_opt opt);
+_Bool
+HH__hmapinsert(void** map_ptr, struct hh_hmapprop_t prop, const void* key);
+//
 #ifdef HH_IMPLEMENTATION
-void
-HH__hmapconfig(void** map_ptr, size_t val_size, hh_hmap_opt opt) {
-    size_t cap = (opt.reserve > 0) ? opt.reserve : HH_DARR_INITIAL_CAPACITY;
-    hh_hmapheader_t* map_hdr = calloc(1, sizeof(hh_hmapheader_t) + val_size * cap);
-    HH_ASSERT(map_hdr != NULL, "HH__hmapconfig failed to allocate map");
-    map_hdr->cap = cap;
-    map_hdr->key_size = opt.key_size;
-    map_hdr->val_size = val_size;
-    map_hdr->hash = opt.hash;
-    map_hdr->comp = opt.comp;
-    map_hdr->bucket_count = (opt.bucket_count > 0) ? opt.bucket_count : HH_BUCKET_COUNT;
-    map_hdr->buckets = calloc(map_hdr->bucket_count, sizeof(char*));
-    HH_ASSERT(map_hdr->buckets != NULL, "HH__hmapconfig failed to allocate map");
-    map_hdr->bucket_lookup = NULL;
-    HH__darrgrow((void**) &map_hdr->bucket_lookup, 0, sizeof(void*));
-    (*map_ptr) = (void*) (map_hdr + 1);
-}
-
+//
 void*
 HH__hmapgrow(void** map_ptr, size_t n) {
     HH_ASSERT_INVARIANT(map_ptr != NULL);
-    hh_hmapheader_t* map_hdr = hh_hmapheader(*map_ptr);
+    struct hh_hmapheader_t* map_hdr = hh_hmapheader(map_ptr[0]);
     if(map_hdr->len + n < map_hdr->cap) return map_hdr;
     while(map_hdr->len + n >= map_hdr->cap) map_hdr->cap *= 2;
-    map_hdr = realloc(map_hdr, sizeof(hh_hmapheader_t) + map_hdr->cap * map_hdr->val_size);
-    HH_ASSERT(map_hdr != NULL, "HH__hmapgrow failed to allocate map");
+    map_hdr = realloc(map_hdr, sizeof(struct hh_hmapheader_t) + map_hdr->cap * map_hdr->prop.sz_entry);
+    HH_ASSERT(map_hdr != NULL, "hmapgrow failed to allocate");
     *map_ptr = (void*) (map_hdr + 1);
     return map_hdr;
 }
 
+struct hh_hmapheader_t*
+HH__hmapconfig(void** map_ptr, struct hh_hmapprop_t prop, hh_hmap_opt opt) {
+    size_t cap = (opt.reserve > 0) ? opt.reserve : HH_DARR_INITIAL_CAPACITY;
+    size_t size = sizeof(struct hh_hmapheader_t) + prop.sz_entry * cap;
+    struct hh_hmapheader_t* map_hdr = calloc(1, size);
+    HH_ASSERT(map_hdr != NULL, "hmapinsert failed to allocate");
+    map_hdr->prop = prop;
+    map_hdr->hash = opt.hash;
+    map_hdr->comp = opt.comp;
+    map_hdr->cap = cap;
+    map_hdr->last = SIZE_MAX;
+    map_hdr->bucket_count = (opt.bucket_count > 0) ? opt.bucket_count : HH_BUCKET_COUNT;
+    map_hdr->buckets = calloc(map_hdr->bucket_count, sizeof(size_t*));
+    map_ptr[0] = (void*) (map_hdr + 1);
+    return map_hdr;
+}
+
 static size_t
-HH__hmap_bucket_index(const void* map, const void* ptr, size_t ptr_size) {
-    hh_hmapheader_t* map_hdr = hh_hmapheader(map);
-    return ((map_hdr->hash == NULL) ? 
-        HH__hash_djb2(ptr, ptr_size) : 
-        (map_hdr->hash)(ptr, ptr_size)) % map_hdr->bucket_count;
+HH__hmapbucket(const struct hh_hmapheader_t* map_hdr, const void* ptr) {
+    size_t hash = ((map_hdr->hash == NULL) ? 
+        HH__hash_djb2(ptr, map_hdr->prop.sz_key) : 
+        (map_hdr->hash)(ptr));
+    return hash % map_hdr->bucket_count;
 }
 
-void*
-HH__hmapinsert(void** map_ptr, void* key, size_t key_size, void* val, size_t val_size) {
+_Bool
+HH__hmapinsert(void** map_ptr, struct hh_hmapprop_t prop, const void* key) {
     HH_ASSERT_INVARIANT(map_ptr != NULL);
-    if(map_ptr[0] == NULL) HH__hmapconfig(map_ptr, val_size, (hh_hmap_opt) {0});
-    hh_hmapheader_t* map_hdr = hh_hmapheader(map_ptr[0]);
-    HH_ASSERT_INVARIANT(key_size > 0 || (key_size == 0 && map_hdr->key_size > 0));
-    key_size = (map_hdr->key_size == 0) ? key_size : map_hdr->key_size;
-    // NOTE: This serves as 'type-checking' for the map
-    // If the original type has been lost, the validity of the map cannot be guaranteed
-    HH_ASSERT_INVARIANT(val_size == map_hdr->val_size);
-    size_t bucket_index = HH__hmap_bucket_index(map_ptr[0], key, key_size);
-    size_t entry_size;
-    if(map_hdr->key_size == 0) entry_size = key_size + sizeof(size_t) * 2;
-    else entry_size = map_hdr->key_size + sizeof(size_t);
-    size_t entry_index = hh_darradd(map_hdr->buckets[bucket_index], entry_size);
-    char* entry_start = map_hdr->buckets[bucket_index] + entry_index;
-    char* entry_end = entry_start;
-    {
-        if(map_hdr->key_size == 0) {
-            *((size_t*) entry_end) = key_size;
-            entry_end += sizeof(size_t);
-            memcpy(entry_end, key, key_size);
-            entry_end += key_size;
-        } else {
-            memcpy(entry_end, key, map_hdr->key_size);
-            entry_end += map_hdr->key_size;
-        }
-        *((size_t*) entry_end) = map_hdr->len;
-        // NOTE: `entry_end` actually points to beginning of value index in the entry
+    struct hh_hmapheader_t* map_hdr = NULL; 
+    if(map_ptr[0] == NULL) {
+        map_hdr = HH__hmapconfig(map_ptr, prop, (hh_hmap_opt) {0});
+    } else {
+        map_hdr = hh_hmapheader(map_ptr[0]);
     }
-    // add value to dynamic array
-    size_t val_index = map_hdr->len;
     map_hdr = HH__hmapgrow(map_ptr, 1);
-    map_hdr->len++;
-    char* val_start = (char*) map_ptr[0] + val_index * map_hdr->val_size;
-    memcpy(val_start , val, map_hdr->val_size);
-    // add entry in lookup table
-    hh_darrput(map_hdr->bucket_lookup, entry_end);
-    return val_start;
-}
-
-static int
-HH__hmap_comp(const void* map, const void* fst, size_t fst_size, const void* snd, size_t snd_size) {
-    hh_hmapheader_t* map_hdr = hh_hmapheader(map);
-    if(map_hdr->comp != NULL) return (map_hdr->comp)(fst, fst_size, snd, snd_size);
-    int result = memcmp(fst, snd, HH_MIN(fst_size, snd_size));
-    if(result != 0) return result;
-    if(fst_size < snd_size) return -1;
-    if(fst_size > snd_size) return 1;
-    return 0;
+    map_hdr->last = SIZE_MAX;
+    char* entry_start = ((char*) map_ptr[0]) + map_hdr->prop.sz_entry * map_hdr->len;
+    // check if element exists in the map
+    size_t idx = hh_hmapget(map_ptr[0], key);
+    if(idx < map_hdr->len) {
+        // if it does, copy that element to the end so we can return it
+        // this prevents data loss
+        char* entry_old = ((char*) map_ptr[0]) + map_hdr->prop.sz_entry * idx;
+        memcpy(entry_start, entry_old, map_hdr->prop.sz_entry);
+        entry_start = entry_old;
+        // save the index for use in macro
+        map_hdr->last = idx;
+    }
+    // add the new element
+    memset(entry_start, 0, map_hdr->prop.sz_entry);
+    memcpy(entry_start + map_hdr->prop.off_key, key, map_hdr->prop.sz_key);
+    // add the corresponding bucket entry
+    if(idx == SIZE_MAX) {
+        hh_darrput(map_hdr->buckets[HH__hmapbucket(map_hdr, key)], map_hdr->len);
+        // increment length and save the index for use in macro
+        map_hdr->last = map_hdr->len++;
+    }
+    return map_hdr->last == idx;
 }
 
 size_t
-hh_hmapget(void* map, const void* key, size_t key_size) {
-    HH_ASSERT_INVARIANT(map != NULL);
+hh_hmapget(const void* map, const void* key) {
     HH_ASSERT_INVARIANT(key != NULL);
-    hh_hmapheader_t* map_hdr = hh_hmapheader(map);
-    HH_ASSERT_INVARIANT(map_hdr->key_size > 0 || (map_hdr->key_size == 0 && key_size > 0));
-    key_size = (map_hdr->key_size == 0) ? key_size : map_hdr->key_size;
-    size_t bucket_index = HH__hmap_bucket_index(map, key, key_size);
-    char* bucket = map_hdr->buckets[bucket_index];
-    if(bucket == NULL) return SIZE_MAX;
-    char* ptr = bucket;
-    do {
-        size_t ptr_size = map_hdr->key_size;
-        if(map_hdr->key_size == 0) {
-            ptr_size = *((size_t*) ptr);
-            ptr += sizeof(size_t);
-        }
-        if(HH__hmap_comp(map, key, key_size, ptr, ptr_size) == 0) {
-            return *((size_t*) (ptr + ptr_size));
-        }
-        ptr += ptr_size + sizeof(size_t);
-    } while(ptr < (bucket + hh_darrlen(bucket)));
+    if(map == NULL) return SIZE_MAX;
+    struct hh_hmapheader_t* map_hdr = hh_hmapheader(map);
+    size_t* bucket = map_hdr->buckets[HH__hmapbucket(map_hdr, key)];
+    for(size_t i = 0, j; i < hh_darrlen(bucket); ++i) {
+        // calculate byte offset to entry's key
+        j = bucket[i] * map_hdr->prop.sz_entry + map_hdr->prop.off_key;
+        if(((map_hdr->comp != NULL) ? (map_hdr->comp)(key, (char*) map + j) : \
+            memcmp(key, (char*) map + j, map_hdr->prop.sz_key)) == 0) return bucket[i];
+    }
     return SIZE_MAX;
 }
 
-void*
-hh_hmapremove(void* map, const void* key, size_t key_size) {
-    HH_ASSERT_INVARIANT(map != NULL);
-    HH_ASSERT_INVARIANT(key != NULL);
-    hh_hmapheader_t* map_hdr = hh_hmapheader(map);
-    HH_ASSERT_INVARIANT(map_hdr->key_size > 0 || (map_hdr->key_size == 0 && key_size > 0));
-    char* bucket_start = map_hdr->buckets[HH__hmap_bucket_index(map, key, key_size)];
-    if(bucket_start == NULL) return NULL;
-    char* entry_start = bucket_start;
-    size_t entry_key_size = map_hdr->key_size;
-    size_t entry_size = map_hdr->key_size + sizeof(size_t);
-    size_t entry_index;
-    do {
-        if(map_hdr->key_size == 0) {
-            entry_key_size = *((size_t*) entry_start);
-            entry_start += sizeof(size_t);
-        }  
-        if(HH__hmap_comp(map, key, key_size, entry_start, entry_key_size) == 0) {
-            if(map_hdr->key_size == 0) {
-                entry_start -= sizeof(size_t);
-                entry_size = sizeof(size_t) + entry_key_size + sizeof(size_t);
-                entry_index = *((size_t*) (entry_start + sizeof(size_t) + entry_key_size));
-            } else {
-                entry_index = *((size_t*) (entry_start + entry_key_size));
-            }
-            goto found;
-        }
-        entry_start += entry_key_size + sizeof(size_t);
-    } while(entry_start < (bucket_start + hh_darrlen(bucket_start)));
-    return NULL;
-found:
-    (void) NULL;
-    char* bucket_end = bucket_start + hh_darrlen(bucket_start);
-    char* entry_end = entry_start + entry_size;
-    assert(entry_end <= bucket_end);
-    if(entry_end < bucket_end) {
-        hh_memswap(entry_start, entry_end, entry_end, bucket_end);
-        // need to correct indices for all entries [entry_start, bucket_end - entry_size]
-        size_t ptr_key_size = map_hdr->key_size;
-        char* ptr = entry_start;
-        while(ptr < bucket_end - entry_size) {
-            if(map_hdr->key_size == 0) {
-                ptr_key_size = *((size_t*) ptr);
-                ptr += sizeof(size_t);
-            }  
-            ptr += ptr_key_size;
-            map_hdr->bucket_lookup[*((size_t*) ptr)] = ptr;
-            ptr += sizeof(size_t);
-        }
-    }
-    hh_darrheader(bucket_start)->len -= entry_size;
-    // remove the actual value from the dynamic array
-    assert(hh_hmaplen(map) > entry_index);
-    map_hdr->len--;
-    if(entry_index == hh_hmaplen(map)) {
-        (void) hh_darrpop(map_hdr->bucket_lookup);
-        return (char*) map + entry_index * map_hdr->val_size;
-    }
-    // swap deletion
-    char* src_start = (char*) map + entry_index * map_hdr->val_size;
-    char* src_end = src_start + map_hdr->val_size;
-    char* dst_start = (char*) map + hh_hmaplen(map) * map_hdr->val_size;
-    char* dst_end = dst_start + map_hdr->val_size;
-    hh_memswap(src_start, src_end, dst_start, dst_end);
-    // remove the actual value and update the index of swapped element
-    hh_darrswapdel(map_hdr->bucket_lookup, entry_index);
-    // entry_index now points to the previous last element
-    *((size_t*) map_hdr->bucket_lookup[entry_index]) = entry_index;
-    // return a pointer to the removed value
-    return (char*) map + hh_hmaplen(map) * map_hdr->val_size;
+void
+hh_hmapfree(const void* map) {
+    if(map == NULL) return;
+    struct hh_hmapheader_t* map_hdr = hh_hmapheader(map);
+    for(size_t i = 0; i < map_hdr->bucket_count; ++i)
+        hh_darrfree(map_hdr->buckets[i]);
+    free(map_hdr->buckets);
+    free(map_hdr);
 }
 
-void
-HH__hmapfree(void** map_ptr) {
-    HH_ASSERT_INVARIANT(map_ptr != NULL);
-    if(map_ptr[0] == NULL) return;
-    hh_hmapheader_t* map_hdr = hh_hmapheader(map_ptr[0]);
-    for(size_t bucket_index = 0; bucket_index < map_hdr->bucket_count; ++bucket_index) {
-        hh_darrfree(map_hdr->buckets[bucket_index]);
+void*
+hh_hmapremove(const void* map, const void* key) {
+    HH_ASSERT_INVARIANT(key != NULL);
+    if(map == NULL) return NULL;
+    if(hh_hmaplen(map) == 0) return NULL;
+    // make sure key exists in the map
+    size_t idx = hh_hmapget(map, key);
+    if(idx == SIZE_MAX) return NULL;
+    // perform deletion
+    struct hh_hmapheader_t* map_hdr = hh_hmapheader(map);
+    (map_hdr->len)--;
+    char* fst = (char*) map + idx * map_hdr->prop.sz_entry;
+    // remove the bucket entry for the deleted entry
+    size_t* bucket = map_hdr->buckets[HH__hmapbucket(map_hdr, fst + map_hdr->prop.off_key)];
+    _Bool found = 0;
+    for(size_t i = 0; i < hh_darrlen(bucket); ++i) {
+        if(bucket[i] == idx) {
+            hh_darrswapdel(bucket, i);
+            found = 1;
+            break;
+        }
     }
-    free(map_hdr->buckets);
-    hh_darrfree(map_hdr->bucket_lookup);
-    free(map_hdr);
-    *map_ptr = NULL;
+    HH_ASSERT(found);
+    // if there are >1 elements in the map we do swap deletion
+    if(idx < map_hdr->len) {
+        char* fst_end = fst + map_hdr->prop.sz_entry;
+        char* snd = (char*) map + map_hdr->len * map_hdr->prop.sz_entry;
+        char* snd_end = snd + map_hdr->prop.sz_entry;
+        hh_memswap(fst, fst_end, snd, snd_end);
+        // update the bucket entry for the moved entry
+        bucket = map_hdr->buckets[HH__hmapbucket(map_hdr, fst + map_hdr->prop.off_key)];
+        found = 0;
+        for(size_t i = 0; i < hh_darrlen(bucket); ++i) {
+            if(bucket[i] == map_hdr->len) {
+                bucket[i] = idx;
+                found = 1;
+                break;
+            }
+        }
+        HH_ASSERT(found);
+        return snd;
+    }
+    // return pointer to the removed entry
+    return fst;
 }
+//
 #endif // HH_IMPLEMENTATION
 //
 #endif // HH_HMAP__
@@ -278,13 +229,7 @@ HH__hmapfree(void** map_ptr) {
 #ifdef HH_STRIP_PREFIXES
 #define hash_f hh_hash_f
 #define comp_f hh_comp_f
-#define hmap_opt hh_hmap_opt
-#define hmapconfig hh_hmapconfig
 #define hmapinsert hh_hmapinsert
-#define hmaplen hh_hmaplen
-#define hh_hmapfree hh_hh_hmapfree
-#define hmapget hh_hmapget
-#define hmapremove hh_hmapremove
 //
 #endif // HH_STRIP_PREFIXES
 //
