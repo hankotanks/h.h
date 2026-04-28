@@ -47,29 +47,22 @@ int main(void) {
     entry_t* str2sz = NULL;
     hh_hmapconfig(str2sz, .key_f.comp = hh_comp_cstr, .key_f.hash = hh_hash_cstr, .key_f.free = free );
     entry_t* repl;
-    for(size_t i = 0, j = 0, k; i < MAX_SZ; ++i) {
+    for(size_t i = 0, k; i < MAX_SZ; ++i) {
         const char* key = randstr(MAX_KEY_SZ);
-        repl = hh_hmapinsert(str2sz, &key, j);
-        printf("[%zu, %zu inserted: (%s, %zu)\n", hh_hmaplen(str2sz), hh_hmapheader(str2sz)->cap, key, j);
+        repl = hh_hmapinsert(str2sz, &key, i);
+        printf("[%zu, %zu] inserted: (%s, %zu)\n", hh_hmaplen(str2sz), hh_hmapheader(str2sz)->cap, key, i);
         dump(str2sz);
-        j++;
         if(repl != NULL) {
-            printf("[%zu, %zu] replaced: (%s, %zu) with %zu\n", hh_hmaplen(str2sz), hh_hmapheader(str2sz)->cap, key, repl->val, j - 1);
+            printf("[%zu, %zu] replaced: (%s, %zu) with %zu\n", hh_hmaplen(str2sz), hh_hmapheader(str2sz)->cap, key, repl->val, i);
             dump(str2sz);
         }
         if(!randinrange(0, 2) && hh_hmaplen(str2sz) > 0) {
             k = randinrange(0, hh_hmaplen(str2sz));
             strcpy(key_temp, str2sz[k].key);
-            printf("[%zu, %zu] removed: %zu\n", hh_hmaplen(str2sz), hh_hmapheader(str2sz)->cap, *(size_t*) hh_hmapremove(str2sz, &key_temp2));
+            repl = hh_hmapremove(str2sz, &key_temp2);
+            printf("[%zu, %zu] removed: %zu\n", hh_hmaplen(str2sz), hh_hmapheader(str2sz)->cap, repl->val);
             dump(str2sz);
         }
-    }
-
-    for(size_t i; hh_hmaplen(str2sz) > 0;) {
-        i = randinrange(0, hh_hmaplen(str2sz));
-        strcpy(key_temp, str2sz[i].key);
-        printf("[%zu, %zu] removed: %zu\n", hh_hmaplen(str2sz), hh_hmapheader(str2sz)->cap, *(size_t*) hh_hmapremove(str2sz, &key_temp2));
-        dump(str2sz);
     }
 
     hh_hmapfree(str2sz);

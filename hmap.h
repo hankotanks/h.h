@@ -20,6 +20,9 @@ typedef struct {
         hh_comp_f comp;
         void (*free)(void* ptr);
     } key_f;
+    struct {
+        void (*free)(void* ptr);
+    } val_f;
     size_t reserve;
     size_t bucket_count;
 } hh_hmap_opt;
@@ -162,6 +165,8 @@ HH__hmapinsert(void** map_ptr, hh_hmapprop_t prop, const void* key) {
         char* entry_old = ((char*) map_ptr[0]) + map_hdr->prop.sz_entry * idx;
         if(map_hdr->opt.key_f.free != NULL) 
             (map_hdr->opt.key_f.free)(*((void**) entry_old + map_hdr->prop.off_key));
+        if(map_hdr->opt.val_f.free != NULL) 
+            (map_hdr->opt.val_f.free)(*((void**) entry_old + map_hdr->prop.off_val));
         memcpy(entry_start, entry_old, map_hdr->prop.sz_entry);
         entry_start = entry_old;
         // save the index for use in macro
@@ -204,6 +209,13 @@ hh_hmapfree(const void* map) {
         for(size_t i = 0; i < map_hdr->len; ++i) {
             key = (char*) map + i * map_hdr->prop.sz_entry + map_hdr->prop.off_key;
             (map_hdr->opt.key_f.free)(*((void**) key));
+        }
+    }
+    if(map_hdr->opt.val_f.free != NULL) {
+        char* val;
+        for(size_t i = 0; i < map_hdr->len; ++i) {
+            val = (char*) map + i * map_hdr->prop.sz_entry + map_hdr->prop.off_val;
+            (map_hdr->opt.val_f.free)(*((void**) val));
         }
     }
     for(size_t i = 0; i < map_hdr->opt.bucket_count; ++i) {
@@ -258,8 +270,10 @@ hh_hmapremove(const void* map, const void* key) {
     char* entry_start = (swap ? snd : fst);
     if(map_hdr->opt.key_f.free != NULL) 
         (map_hdr->opt.key_f.free)(*((void**) (entry_start + map_hdr->prop.off_key)));
+    if(map_hdr->opt.val_f.free != NULL) 
+        (map_hdr->opt.val_f.free)(*((void**) (entry_start + map_hdr->prop.off_val)));
     // return pointer to the removed entry
-    return entry_start + map_hdr->prop.off_val;
+    return entry_start;
 }
 //
 #endif // HH_IMPLEMENTATION
