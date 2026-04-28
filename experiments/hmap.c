@@ -1,7 +1,4 @@
-#include "h.h"
-#include "hmap.h"
-#include <stddef.h>
-#include <string.h>
+#include "hcore.h"
 
 char* randstr(size_t n) {
     static const char charset[] = \
