@@ -24,6 +24,7 @@
 #include <stdint.h>
 #include <assert.h>
 
+// SECTION(HEADER)
 // log only errors
 // #define HH_LOG HH_LOG_ERR
 // log errors and messages
@@ -283,52 +284,6 @@ hh_edition_supported(hh_edition_t ed);
 // compile time checking, with identical logic to hh_edition_supported above
 #define HH_EDITION_SUPPORTED(ed) (HH_EDITION >= (ed))
 
-// hh_span_t is a string-view interface
-// intended for parsing
-typedef struct {
-    char* ptr;
-    char* end;
-} hh_span_t;
-
-// options for the hh_span_next family of functions/macros
-// delim: the separator sequence used to split tokens
-// delim_as_set: treat `delim` as a set of possible delimiters rather than a sequence
-// eol: treat '\n' as a valid delimiter
-// trim: trim whitespace around tokens
-typedef struct {
-    const char* delim;
-    _Bool delim_as_set;
-    _Bool eol;
-    _Bool trim;
-} hh_span_opt;
-
-// returns the length of the span
-#define hh_span_len(span) (((span).ptr != NULL && (span).end != NULL) ? ((size_t) ((span).end - (span).ptr)) : 0)
-
-// format specifier and arg macro for span's
-// printf(hh_span_fmt "\n", hh_span_fmt_args(span));
-#define hh_span_fmt "%.*s"
-#define hh_span_fmt_args(span) ((int) hh_span_len(span)), ((span).ptr)
-
-// TODO: consider implementing a const version of hh_span_t
-// creates a stack-allocated span from a null-terminated cstr
-// the span does NOT contain the null-terminator
-hh_span_t
-hh_span(char* contents);
-
-// grabs the next token from the span
-#define hh_span_next(span, ...) hh_span_next_opt((span), (hh_span_opt) { __VA_ARGS__ })
-
-// parsing macros
-// accepts the same optional arguments as hh_span_next,
-// just parses the result afterwards
-// if any stage of the parsing fails, `span` is rewound
-// if the failure occurred during hh_span_next, `err` = `span`
-// if it occurred during parsing, it is set to the result of hh_span_next
-#define hh_span_next_lf(span, err, ...) hh_span_next_opt_lf((span), (hh_span_opt) { __VA_ARGS__ }, (err))
-#define hh_span_next_ld(span, err, ...) hh_span_next_opt_ld((span), (hh_span_opt) { __VA_ARGS__ }, (err))
-#define hh_span_next_zu(span, err, ...) hh_span_next_opt_zu((span), (hh_span_opt) { __VA_ARGS__ }, (err))
-
 // function types for hashing and comparing hmap keys
 // in both cases, the pointers... point to the key's bytes
 typedef size_t (*hh_hash_f)(const void* ptr, size_t sz);
@@ -373,7 +328,7 @@ typedef struct {
 // hh_hmapremove  removes an entry and returns a pointer to it
 
 #define hh_hmaplen(map)                 (((map) == NULL) ? 0 : hh_hmapheader(map)->len)
-#define hh_hmapconfig(map, ...)         (HH__hmapconfig((void**) &(map), hh_hmapprop(map), (hh_hmap_opt) { __VA_ARGS__ }))
+#define hh_hmapconfig(map, ...)         ((void) HH__hmapconfig((void**) &(map), hh_hmapprop(map), (hh_hmap_opt) { __VA_ARGS__ }))
 #define hh_hmapinsert(map, key_, val_)  (HH__hmapinsert((void**) &(map), hh_hmapprop(map), (key_)) ? \
     ((map)[hh_hmapheader(map)->last].val = val_, &(map)[hh_hmaplen(map)]) : \
     ((map)[hh_hmapheader(map)->last].val = val_, NULL))
@@ -416,6 +371,7 @@ hh_memflip(char* ptr, const char* end);
 // reverses n bytes starting at ptr, in-place
 void 
 hh_memflipn(char* ptr, size_t n);
+// SECTION(HEADER, END)
 
 //
 //
@@ -433,11 +389,7 @@ hh_memflipn(char* ptr, size_t n);
 //
 //
 
-//
-//
-//
-
-// helper definition for custom log blocks
+// SECTION(HEADER_PRIVATE)
 #ifdef HH_LOG
 #define HH_LOG_BLOCK(stream, name) for(uintptr_t \
     HH_LOG_BLOCK_stream  = (uintptr_t) (stream), \
@@ -481,7 +433,7 @@ typedef struct {
 } hh_darrheader_t;
 
 // helper macros for dynamic array implementation
-#define hh_darrheader(arr)  (((hh_darrheader_t*) arr) - 1)
+#define hh_darrheader(arr)  (((hh_darrheader_t*) (arr)) - 1)
 #define hh_darrgrow(arr, n) (HH__darrgrow((void**) &(arr), (n), sizeof(*(arr))), (arr))
 
 // helper functions for dynamic array
@@ -597,23 +549,6 @@ HH__path_join(char* path, ...);
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, )
 
-// if the following is defined
-// hh_span_next_lf, hh_span_next_ld, hh_span_next_zu, etc
-// will return huge values on failure.
-// this is included solely as a diagnostic
-// #define HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
-
-// underlying function behind hh_span_next
-hh_span_t
-hh_span_next_opt(hh_span_t* s, hh_span_opt opt);
-// underlying functions behind hh_span_next_lf, hh_span_next_ld, hh_span_next_zu, etc
-double
-hh_span_next_opt_lf(hh_span_t* span, hh_span_opt opt, hh_span_t* err);
-long
-hh_span_next_opt_ld(hh_span_t* span, hh_span_opt opt, hh_span_t* err);
-size_t
-hh_span_next_opt_zu(hh_span_t* span, hh_span_opt opt, hh_span_t* err);
-
 // the default number of buckets to be used by hh_hmap
 #ifndef HH_BUCKET_COUNT
 #define HH_BUCKET_COUNT 16
@@ -639,7 +574,7 @@ typedef struct {
     size_t** buckets;
 } hh_hmapheader_t;
 // macro for retrieving hmap header
-#define hh_hmapheader(map) (((hh_hmapheader_t*) map) - 1)
+#define hh_hmapheader(map) (((hh_hmapheader_t*) (map)) - 1)
 
 // implementations of hmap macros
 hh_hmapheader_t*
@@ -652,6 +587,7 @@ ptrdiff_t // NO PREFIX STRIPPING
 hh_getdelim(char** buf, size_t* bufsiz, int delimiter, FILE* fp);
 ptrdiff_t // NO PREFIX STRIPPING
 hh_getline(char** buf, size_t* bufsiz, FILE* fp);
+// SECTION(HEADER_PRIVATE, END)
 
 #ifdef HH_IMPLEMENTATION
 // implementation-exclusive includes
@@ -660,11 +596,6 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp);
 #include <string.h>
 #include <stdarg.h>
 #include <stdlib.h>
-#ifdef HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
-#include <math.h>
-#include <float.h>
-#include <limits.h>
-#endif // HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
 
 // platform-dependent includes
 #ifdef _WIN32
@@ -674,7 +605,7 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp);
 #include <unistd.h>
 #include <sys/stat.h>
 #endif // _WIN32
-
+// SECTION(IMPLEMENTATION)
 void*
 HH__malloc_checked(size_t size, const char* file, int line) {
     void* ptr = malloc(size);
@@ -934,133 +865,6 @@ _Bool
 hh_edition_supported(hh_edition_t ed) {
     return HH_EDITION >= ed;
 }
-
-hh_span_t
-hh_span(char* str) {
-    if(str == NULL) return (hh_span_t) {0};
-    return (hh_span_t) { .ptr = str, .end = str + strlen(str) };
-}
-
-size_t
-HH__span_matches(hh_span_t* span, hh_span_opt opt) {
-    if(span->ptr == span->end) return SIZE_MAX;
-    if(opt.eol && span->ptr[0] == '\n') return 1;
-    if(opt.delim == NULL) return 0;
-    if(opt.delim_as_set) {
-        return (strchr(opt.delim, span->ptr[0]) != 0);
-    } else {
-        size_t count;
-        count = strlen(opt.delim);
-        if(span->ptr + count >= span->end) return 0;
-        return (strncmp(span->ptr, opt.delim, count) == 0) ? count : 0;
-    }
-}
-
-hh_span_t
-hh_span_next_opt(hh_span_t* span, hh_span_opt opt) {
-    const char* whitespace = opt.eol ? " \t\r" : " \t\r\n";
-    hh_span_t temp = { .end = span->end };
-    if(span->ptr == span->end) return temp;
-    if(opt.trim) {
-        while(strchr(whitespace, span->ptr[0]) != 0) ++(span->ptr);
-    }
-    size_t count;
-    for(char* cur = span->ptr, *adv; cur <= span->end; ++cur) {
-        temp.ptr = cur;
-        count = HH__span_matches(&temp, opt);
-        if(count == SIZE_MAX) {
-            if(opt.trim) {
-                --cur;
-                while(cur > span->ptr && strchr(whitespace, cur[0]) != 0) --cur;
-                ++cur;
-            }
-            temp.ptr = span->ptr;
-            temp.end = cur;
-            span->ptr = span->end;
-            return temp;
-        }
-        if(count > 0) {
-            adv = cur + count;
-            if(opt.trim) {
-                --cur;
-                while(cur > span->ptr && strchr(whitespace, cur[0]) != 0) --cur;
-                ++cur;
-                while(adv < span->end && strchr(whitespace, adv[0]) != 0) ++adv;
-            }
-            temp.ptr = span->ptr;
-            temp.end = cur;
-            span->ptr = adv;
-            return temp;
-        }
-    }
-    temp.ptr = NULL;
-    return temp;
-}
-
-#define HH__SPAN_PROLOGUE(err_ret) \
-    if(err != NULL && err->ptr != NULL) return (err_ret); \
-    hh_span_t prev = *span; \
-    hh_span_t token = hh_span_next_opt(span, opt); \
-    if(token.ptr == NULL) { \
-        *err = prev; \
-        return (err_ret); \
-    } \
-    HH_ASSERT_INVARIANT(token.end != NULL);
-
-#define HH__SPAN_EPILOGUE(err_ret, err_cond) \
-    if(err_cond) { \
-        *span = prev; \
-        *err = token; \
-        return (err_ret); \
-    }
-
-double
-hh_span_next_opt_lf(hh_span_t* span, hh_span_opt opt, hh_span_t* err) {
-#ifdef HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
-#define HH__SPAN_ERROR HUGE_VAL
-#else
-#define HH__SPAN_ERROR 0.0
-#endif // HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
-    HH__SPAN_PROLOGUE(HH__SPAN_ERROR);
-    char* end;
-    double val = strtod(token.ptr, &end);
-    HH__SPAN_EPILOGUE(HH__SPAN_ERROR, end == token.ptr || end != token.end || errno == ERANGE);
-    return val;
-#undef HH__SPAN_ERROR
-}
-
-long
-hh_span_next_opt_ld(hh_span_t* span, hh_span_opt opt, hh_span_t* err) {
-#ifdef HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
-#define HH__SPAN_ERROR LONG_MAX
-#else
-#define HH__SPAN_ERROR 0
-#endif // HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
-    HH__SPAN_PROLOGUE(HH__SPAN_ERROR);
-    char* end;
-    long val = strtol(token.ptr, &end, 10);
-    HH__SPAN_EPILOGUE(HH__SPAN_ERROR, end == token.ptr || end != token.end || errno == ERANGE);
-    return val;
-#undef HH__SPAN_ERROR
-}
-
-size_t
-hh_span_next_opt_zu(hh_span_t* span, hh_span_opt opt, hh_span_t* err) {
-#ifdef HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
-#define HH__SPAN_ERROR ULONG_MAX
-#else
-#define HH__SPAN_ERROR 0
-#endif // HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
-    HH__SPAN_PROLOGUE(HH__SPAN_ERROR);
-    char* end;
-    size_t val = strtoul(token.ptr, &end, 10);
-    HH__SPAN_EPILOGUE(HH__SPAN_ERROR, end == token.ptr || end != token.end || errno == ERANGE);
-    return val;
-#undef HH__SPAN_ERROR
-}
-
-#undef HH__SPAN_PROLOGUE
-#undef HH__SPAN_EPILOGUE
 
 size_t
 hh_hash_djb2(const void* ptr, size_t sz) {
@@ -1413,33 +1217,19 @@ ptrdiff_t
 hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
     return hh_getdelim(buf, bufsiz, '\n', fp);
 }
-//
+// SECTION(IMPLEMENTATION, END)
 #endif // HH_IMPLEMENTATION
-//
 #endif // HH__
 
 #ifndef HH__STRIP_PREFIXES
-//
 #define HH__STRIP_PREFIXES
-//
 #ifdef HH_STRIP_PREFIXES
+// SECTION(PREFIX)
 #define MAX HH_MAX
 #define MIN HH_MIN
 #define ARR_LEN HH_ARR_LEN
 #define UNUSED HH_UNUSED
 #define FALLTHROUGH HH_FALLTHROUGH
-#define DBG HH_DBG
-#define MSG HH_MSG
-#define ERR HH_ERR
-#define DBG_BLOCK HH_DBG_BLOCK
-#define MSG_BLOCK HH_MSG_BLOCK
-#define ERR_BLOCK HH_ERR_BLOCK
-#define LOG_APPEND HH_LOG_APPEND
-#define STRINGIFY HH_STRINGIFY
-#define STRINGIFY_BOOL HH_STRINGIFY_BOOL
-#define ASSERT HH_ASSERT
-#define ASSERT_INVARIANT HH_ASSERT_INVARIANT
-#define UNREACHABLE HH_UNREACHABLE
 #define malloc_checked hh_malloc_checked
 #define calloc_checked hh_calloc_checked
 #define fp_wrap_t hh_fp_wrap_t
@@ -1478,16 +1268,6 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define edition_t hh_edition_t
 #define edition_supported hh_edition_supported
 #define EDITION_SUPPORTED HH_EDITION_SUPPORTED
-#define span_t hh_span_t
-#define span_opt hh_span_opt
-#define span_len hh_span_len
-#define span_fmt hh_span_fmt
-#define span_fmt_args hh_span_fmt_args
-#define span hh_span
-#define span_next hh_span_next
-#define span_next_lf hh_span_next_lf
-#define span_next_ld hh_span_next_ld
-#define span_next_zu hh_span_next_zu
 #define hash_f hh_hash_f
 #define comp_f hh_comp_f
 #define hash_djb2 hh_hash_djb2
@@ -1507,7 +1287,6 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define memswap hh_memswap
 #define memflip hh_memflip
 #define memflipn hh_memflipn
-//
+// SECTION(PREFIX, END)
 #endif // HH_STRIP_PREFIXES
-//
 #endif // not HH__STRIP_PREFIXES
