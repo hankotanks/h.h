@@ -1225,11 +1225,26 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define HH__STRIP_PREFIXES
 #ifdef HH_STRIP_PREFIXES
 // SECTION(PREFIX)
+#ifdef HH_LOG
+#define DBG HH_DBG
+#define MSG HH_MSG
+#define ERR HH_ERR
+#define DBG_BLOCK HH_DBG_BLOCK
+#define MSG_BLOCK HH_MSG_BLOCK
+#define ERR_BLOCK HH_ERR_BLOCK
+#define LOG_APPEND HH_LOG_APPEND
+#endif // HH_LOG
 #define MAX HH_MAX
 #define MIN HH_MIN
 #define ARR_LEN HH_ARR_LEN
 #define UNUSED HH_UNUSED
 #define FALLTHROUGH HH_FALLTHROUGH
+#define CONCATENATE HH_CONCATENATE
+#define STRINGIFY HH_STRINGIFY
+#define STRINGIFY_BOOL HH_STRINGIFY_BOOL
+#define ASSERT HH_ASSERT
+#define ASSERT_INVARIANT HH_ASSERT_INVARIANT
+#define UNREACHABLE HH_UNREACHABLE
 #define malloc_checked hh_malloc_checked
 #define calloc_checked hh_calloc_checked
 #define fp_wrap_t hh_fp_wrap_t

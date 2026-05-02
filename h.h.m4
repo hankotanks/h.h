@@ -6,7 +6,7 @@ define(<%SECTION_PREFIX%>, <%ifelse($2,<%END%>,<%divert(-1)%>,<%divert(4)%>)%>)d
 define(<%SECTION%>, <%ifelse($#,0,<%errprint(<%ERROR: must provide section name\n%>)m4exit(<%1%>)%>,<%SECTION_$1($@)%>)%>)dnl
 define(<%include_clean%>,<%esyscmd(<%sed "s|^//\s*SECTION(|SECTION(|" $1%>)%>)dnl
 divert(-1)dnl
-include_clean(<%hinc.h%>)
+include_clean(<%include.h%>)
 include_clean(<%hcore.h%>)
 divert(0)dnl
 #ifndef HH__

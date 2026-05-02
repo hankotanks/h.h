@@ -1,2 +1,3 @@
 .cache/*
+experiments/*
 compile_commands.json
