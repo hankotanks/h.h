@@ -1,0 +1,16 @@
+`h.h` is constructed from a series of components with `m4`.
+
+[source,sh]
+----
+m4 h.h.m4 > h.h
+----
+
+If you only need a subset of the library's functionality, you can omit the rest.
+Component names mirror the filenames in `/include`.
+
+[source,sh]
+----
+m4 -Dcomponents="core args" h.h.m4 > h.h
+----
+
+Alternatively, just use the individual headers.
