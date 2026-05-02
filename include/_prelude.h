@@ -34,11 +34,6 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdlib.h>
-#ifdef HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
-#include <math.h>
-#include <float.h>
-#include <limits.h>
-#endif // HH_SPAN_RETURN_ODDITY_ON_PARSE_FAILURE
 
 // platform-dependent includes
 #ifdef _WIN32

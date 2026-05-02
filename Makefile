@@ -32,7 +32,7 @@ $(TESTS_DIR)/%$(SUF): $(TESTS_DIR)/%.c h.h
 	@$(RM) $@
 
 $(OUT): $(OUT).m4 $(HEADERS)
-	m4 -Dinclude_=$(HEADERS_DIR) $< > $@
+	m4 $< > $@
 
 test: $(addsuffix $(SUF),$(basename $(TESTS))) $(OUT)
 
