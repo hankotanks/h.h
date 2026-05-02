@@ -1,3 +1,4 @@
 .cache/*
 experiments/*
+h.h
 compile_commands.json
