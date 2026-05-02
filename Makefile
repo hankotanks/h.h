@@ -1,3 +1,5 @@
+OUT := h.h
+
 ifeq ($(OS),Windows_NT)
 	CC := gcc
 else
@@ -19,18 +21,21 @@ endif
 TESTS_DIR := $(PROJECT_ROOT)tests
 TESTS := $(wildcard $(TESTS_DIR)/*.c)
 
+HEADERS_DIR := $(PROJECT_ROOT)include
+HEADERS := $(wildcard $(HEADERS_DIR)/*.h)
+
 $(TESTS_DIR)/%$(SUF): $(TESTS_DIR)/%.c h.h
-	$(CC) $(CFLAGS) $< -o $@
+	$(CC) $(CFLAGS) $< -o $@ 
 	@echo "Running $(notdir $@)."
 	@$@
 	@echo "Exited $(notdir $@) with code $$?."
 	@$(RM) $@
 
-h.h: h.h.m4 hcore.h include.h
-	m4 $< > $@
+$(OUT): $(OUT).m4 $(HEADERS)
+	m4 -Dinclude_=$(HEADERS_DIR) $< > $@
 
-test: $(addsuffix $(SUF),$(basename $(TESTS))) h.h
+test: $(addsuffix $(SUF),$(basename $(TESTS))) $(OUT)
 
-all: h.h
+all: $(OUT)
 
-.PHONY: all
+.PHONY: all 
