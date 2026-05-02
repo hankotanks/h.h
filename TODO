@@ -1,4 +1,0 @@
-* (de)serialization
-* hh_path functions for iterating files
-** globbing
-** recursive directory traversal
