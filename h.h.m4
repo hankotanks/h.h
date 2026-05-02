@@ -4,11 +4,11 @@ define(<%SECTION_HEADER_PRIVATE%>, <%ifelse($2,<%END%>,<%divert(-1)%>,<%divert(2
 define(<%SECTION_IMPLEMENTATION%>, <%ifelse($2,<%END%>,<%divert(-1)%>,<%divert(3)%>)%>)dnl
 define(<%SECTION_PREFIX%>, <%ifelse($2,<%END%>,<%divert(-1)%>,<%divert(4)%>)%>)dnl
 define(<%SECTION%>, <%ifelse($#,0,<%errprint(<%ERROR: must provide section name\n%>)m4exit(<%1%>)%>,<%SECTION_$1($@)%>)%>)dnl
-define(<%include_clean%>,<%esyscmd(<%sed "s|^//\s*SECTION(|SECTION(|" $1%>)%>)dnl
-define(<%include_clean_file%>,<%include_clean(include_/$1)%>)dnl
+define(<%include_header_inner%>,<%esyscmd(<%sed "s|^//\s*SECTION(|SECTION(|" $1%>)%>)dnl
+define(<%include_header%>,<%include_header_inner(include_/$1)%>)dnl
 divert(-1)dnl
-include_clean_file(include.h)
-include_clean_file(core.h)
+include_header(include.h)
+include_header(core.h)
 divert(0)dnl
 #ifndef HH__
 #define HH__
