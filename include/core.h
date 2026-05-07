@@ -11,11 +11,9 @@
 #define _POSIX_C_SOURCE 200809L
 #else
 #ifdef __MINGW32__
-#ifdef _MSC_VER
 #ifndef __USE_MINGW_ANSI_STDIO
 #define __USE_MINGW_ANSI_STDIO
 #endif // not __USE_MINGW_ANSI_STDIO
-#endif // _MSC_VER
 #endif // __MINGW32__
 #endif // _WIN32
 
@@ -1225,7 +1223,6 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define HH__STRIP_PREFIXES
 #ifdef HH_STRIP_PREFIXES
 // SECTION(PREFIX)
-#ifdef HH_LOG
 #define DBG HH_DBG
 #define MSG HH_MSG
 #define ERR HH_ERR
@@ -1233,7 +1230,6 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define MSG_BLOCK HH_MSG_BLOCK
 #define ERR_BLOCK HH_ERR_BLOCK
 #define LOG_APPEND HH_LOG_APPEND
-#endif // HH_LOG
 #define MAX HH_MAX
 #define MIN HH_MIN
 #define ARR_LEN HH_ARR_LEN

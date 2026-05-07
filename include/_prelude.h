@@ -12,11 +12,9 @@
 #define _POSIX_C_SOURCE 200809L
 #else
 #ifdef __MINGW32__
-#ifdef _MSC_VER
 #ifndef __USE_MINGW_ANSI_STDIO
 #define __USE_MINGW_ANSI_STDIO
 #endif // not __USE_MINGW_ANSI_STDIO
-#endif // _MSC_VER
 #endif // __MINGW32__
 #endif // _WIN32
 
