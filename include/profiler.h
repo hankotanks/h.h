@@ -1,5 +1,5 @@
-#ifndef HH_PROFILER_
-#define HH_PROFILER_
+#ifndef HH_PROFILER__
+#define HH_PROFILER__
 
 #include "core.h"
 
