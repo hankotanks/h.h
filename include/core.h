@@ -1,6 +1,7 @@
 #ifndef HH__
 #define HH__
 
+// SECTION(HEADER)
 #ifndef _WIN32
 #ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE
@@ -22,7 +23,12 @@
 #include <stdint.h>
 #include <assert.h>
 
-// SECTION(HEADER)
+#ifdef _WIN32
+#include <winnt.h>
+#else // _WIN32
+#include <sys/time.h>
+#endif // not _WIN32
+
 // log only errors
 // #define HH_LOG HH_LOG_ERR
 // log errors and messages
@@ -52,32 +58,32 @@
     fprintf(HH_DBG_STREAM, __VA_ARGS__); \
     fputc('\n', HH_DBG_STREAM); \
 } while(0)
-#else
+#else // HH_LOG >= HH_LOG_DBG
 #define HH_DBG(...)
-#endif // HH_DBG
+#endif // HH_LOG < HH_LOG_DBG
 #if HH_LOG >= HH_LOG_MSG
 #define HH_MSG(...) do { \
     fprintf(HH_MSG_STREAM, "INFO [%s:%d]: ", __FILE__, __LINE__); \
     fprintf(HH_MSG_STREAM, __VA_ARGS__); \
     fputc('\n', HH_MSG_STREAM); \
 } while(0)
-#else
+#else // HH_LOG >= HH_LOG_MSG
 #define HH_MSG(...)
-#endif // HH_MSG
+#endif // HH_LOG < HH_LOG_MSG
 #if HH_LOG >= HH_LOG_ERR
 #define HH_ERR(...) do { \
     fprintf(HH_ERR_STREAM, "ERROR [%s:%d]: ", __FILE__, __LINE__); \
     fprintf(HH_ERR_STREAM, __VA_ARGS__); \
     fputc('\n', HH_ERR_STREAM); \
 } while(0)
-#else
+#else // HH_LOG >= HH_LOG_ERR
 #define HH_ERR(...)
-#endif // HH_ERR
-#else
+#endif // HH_LOG < HH_LOG_ERR
+#else // HH_LOG
 #define HH_DBG(...)
 #define HH_MSG(...)
 #define HH_ERR(...)
-#endif // HH_LOG
+#endif // not HH_LOG
 
 // the block logging functions allow building a log message incrementally,
 // useful for printing arrays, etc.
@@ -282,6 +288,16 @@ hh_edition_supported(hh_edition_t ed);
 // compile time checking, with identical logic to hh_edition_supported above
 #define HH_EDITION_SUPPORTED(ed) (HH_EDITION >= (ed))
 
+// high-precision cross-platform timer
+typedef struct HH__timer_t hh_timer_t;
+
+// begin timer
+hh_timer_t
+hh_timer_start(void);
+// get time since hh_timer_start (in milliseconds)
+double
+hh_timer_duration(hh_timer_t from);
+
 // function types for hashing and comparing hmap keys
 // in both cases, the pointers... point to the key's bytes
 typedef size_t (*hh_hash_f)(const void* ptr, size_t sz);
@@ -393,7 +409,7 @@ hh_memflipn(char* ptr, size_t n);
     HH_LOG_BLOCK_stream  = (uintptr_t) (stream), \
     HH_LOG_BLOCK_toggle  = (uintptr_t) (HH_LOG_APPEND("%s [%s:%d]: ", (name), __FILE__, __LINE__) == 0); \
     HH_LOG_BLOCK_toggle != (uintptr_t) '\n' && HH_LOG_BLOCK_toggle != (uintptr_t) EOF; \
-    HH_LOG_BLOCK_toggle  = (uintptr_t) fputc('\n', (FILE*) HH_LOG_BLOCK_stream))
+    HH_LOG_BLOCK_toggle  = (uintptr_t) fputc('\n', (FILE*) HH_LOG_BLOCK_stream)) // TODO: Consider if this closing newline should be removed
 #else
 #define HH_LOG_BLOCK(stream, name) if(0)
 #endif // HH_LOG
@@ -508,6 +524,14 @@ HH__path_join(char* path, ...);
 #endif // __STDC_VERSION__
 #endif // __STD__
 
+struct HH__timer_t {
+#ifdef _WIN32
+    LARGE_INTEGER start, freq;
+#else // _WIN32
+    struct timeval start;
+#endif // not _WIN32
+};
+
 #define HH__ARGS_LENGTH(...) HH__ARGS_LENGTH_128(__VA_ARGS__)
 #define HH__ARGS_LENGTH_128(_1, _2, _3, _4, _5, _6, _7, _8, _9, \
     _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, \
@@ -588,6 +612,7 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp);
 // SECTION(HEADER_PRIVATE, END)
 
 #ifdef HH_IMPLEMENTATION
+// SECTION(IMPLEMENTATION)
 // implementation-exclusive includes
 #include <ctype.h>
 #include <errno.h>
@@ -603,7 +628,7 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp);
 #include <unistd.h>
 #include <sys/stat.h>
 #endif // _WIN32
-// SECTION(IMPLEMENTATION)
+
 void*
 HH__malloc_checked(size_t size, const char* file, int line) {
     void* ptr = malloc(size);
@@ -864,6 +889,33 @@ hh_edition_supported(hh_edition_t ed) {
     return HH_EDITION >= ed;
 }
 
+hh_timer_t
+hh_timer_start(void) {
+    hh_timer_t timer;
+#ifdef _WIN32
+    QueryPerformanceFrequency(&timer.freq);
+    QueryPerformanceCounter(&timer.start);
+#else // _WIN32
+    gettimeofday(&timer.start, NULL);
+#endif // not _WIN32
+    return timer;
+}
+
+double
+hh_timer_duration(hh_timer_t timer) {
+#ifdef _WIN32
+    LARGE_INTEGER end;
+    QueryPerformanceCounter(&end);
+    // compute and print the elapsed time in millisec
+    return (timer.start.QuadPart - end.QuadPart) * 1000.0 / timer.freq.QuadPart;
+#else // _WIN32
+    struct timeval end;
+    gettimeofday(&end, NULL);
+    return (double) (end.tv_usec - timer.start.tv_usec) / 1000.0 + \
+        (double) ((end.tv_sec - timer.start.tv_sec) * 1000);
+#endif // not _WIN32
+}
+
 size_t
 hh_hash_djb2(const void* ptr, size_t sz) {
     size_t hash = 5381;
@@ -884,7 +936,7 @@ hh_comp_cstr(const void* fst, const void* snd, size_t sz) {
     return strcmp(*((const char**) fst), *((const char**) snd));
 }
 
-static void*
+static inline void*
 HH__hmapgrow(void** map_ptr, size_t n) {
     HH_ASSERT_INVARIANT(map_ptr != NULL);
     hh_hmapheader_t* map_hdr = hh_hmapheader(map_ptr[0]);
@@ -915,12 +967,12 @@ HH__hmapconfig(void** map_ptr, hh_hmapprop_t prop, hh_hmap_opt opt) {
     return map_hdr;
 }
 
-static size_t
+static inline size_t
 HH__hmapbucketindex(const hh_hmapheader_t* map_hdr, const void* ptr) {
     return (map_hdr->opt.key_f.hash)(ptr, map_hdr->prop.sz_key) % map_hdr->opt.bucket_count;
 }
 
-static size_t*
+static inline size_t*
 HH__hmapbucket(const hh_hmapheader_t* map_hdr, const void* ptr) {
     return map_hdr->buckets[HH__hmapbucketindex(map_hdr, ptr)];
 }
@@ -977,6 +1029,7 @@ hh_hmapget(const void* map, const void* key) {
     return SIZE_MAX;
 }
 
+// TODO: Should shadow with macro to set map to NULL
 void
 hh_hmapfree(const void* map) {
     if(map == NULL) return;
@@ -1279,6 +1332,9 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define edition_t hh_edition_t
 #define edition_supported hh_edition_supported
 #define EDITION_SUPPORTED HH_EDITION_SUPPORTED
+#define timer_t hh_timer_t
+#define timer_start hh_timer_start
+#define timer_duration hh_timer_duration
 #define hash_f hh_hash_f
 #define comp_f hh_comp_f
 #define hash_djb2 hh_hash_djb2

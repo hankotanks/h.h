@@ -10,7 +10,7 @@ Components mirror the filenames in `/include`.
 
 [source,sh]
 ----
-m4 -Dcomponents="core args" h.h.m4 > h.h
+m4 -Dcomponents="profiler" h.h.m4 > h.h
 ----
 
 Alternatively, just use the individual headers.
