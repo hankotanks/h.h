@@ -53,7 +53,7 @@ struct HH__profiler_t {
             char* keys;
         } stats;
         hh_profiler_t* parent;
-    } stats_or_parent;
+    } inner;
 };
 // SECTION(HEADER_PRIVATE, END)
 
@@ -75,11 +75,11 @@ hh_profiler_start(const char* name, hh_profiler_t* parent) {
         .root = (parent == NULL) 
     };
     if(profiler.root) {
-        hh_hmapconfig(profiler.stats_or_parent.stats.inner, .key_f = {
+        hh_hmapconfig(profiler.inner.stats.inner, .key_f = {
                 .hash = hh_hash_cstr,
                 .comp = hh_comp_cstr
             });
-    } else profiler.stats_or_parent.parent = parent;
+    } else profiler.inner.parent = parent;
     return profiler;
 }
 
@@ -88,10 +88,10 @@ HH__profiler_full_name(hh_profiler_t* root, const hh_profiler_t* profiler) {
     HH_ASSERT_INVARIANT(root != NULL);
     HH_ASSERT_INVARIANT(profiler != NULL);
     if(!profiler->root) {
-        HH__profiler_full_name(root, profiler->stats_or_parent.parent);
-        hh_darrputstr(root->stats_or_parent.stats.keys, "/");
+        HH__profiler_full_name(root, profiler->inner.parent);
+        hh_darrputstr(root->inner.stats.keys, "/");
     }
-    hh_darrputstr(root->stats_or_parent.stats.keys, profiler->name);
+    hh_darrputstr(root->inner.stats.keys, profiler->name);
 }
 
 void
@@ -105,37 +105,38 @@ hh_profiler_end(hh_profiler_t* profiler) {
             HH_LOG_APPEND("Results from \"%s\" profiler...\n", profiler->name);
             HH_LOG_APPEND("  %s: %.2lfms [1 sample]\n", profiler->name, elapsed);
             hh_bench_t bench;
-            for(size_t i = 0; i < hh_hmaplen(profiler->stats_or_parent.stats.inner); ++i) {
-                bench = profiler->stats_or_parent.stats.inner[i].val;
+            for(size_t i = 0; i < hh_hmaplen(profiler->inner.stats.inner); ++i) {
+                bench = profiler->inner.stats.inner[i].val;
                 HH_LOG_APPEND("  %s: %.2lfms [%zu sample%s]\n", 
-                    profiler->stats_or_parent.stats.inner[i].key, 
+                    profiler->inner.stats.inner[i].key, 
                     bench.mean, bench.count, bench.count == 1 ? "" : "s");
             }
+            (void) bench;
         }
-        hh_hmapfree(profiler->stats_or_parent.stats.inner);
-        hh_darrfree(profiler->stats_or_parent.stats.keys);
+        hh_hmapfree(profiler->inner.stats.inner);
+        hh_darrfree(profiler->inner.stats.keys);
     } else {
         // find the root profiler
-        hh_profiler_t* root = profiler->stats_or_parent.parent;
-        while(!root->root) root = root->stats_or_parent.parent;
+        hh_profiler_t* root = profiler->inner.parent;
+        while(!root->root) root = root->inner.parent;
         // construct the current profiler's full name
-        size_t offset = hh_darrlen(root->stats_or_parent.stats.keys);
+        size_t offset = hh_darrlen(root->inner.stats.keys);
         // NOTE: this is done under the assumption that hh_darrputstr 
         // only strips one instance of '\0' at the end of the string
-        hh_darrput(root->stats_or_parent.stats.keys, '\0');
+        hh_darrput(root->inner.stats.keys, '\0');
         HH__profiler_full_name(root, profiler);
-        const char* key = root->stats_or_parent.stats.keys + offset;
+        const char* key = root->inner.stats.keys + offset;
         // check if it's the first iteration
-        size_t idx = hh_hmapget(root->stats_or_parent.stats.inner, &key);
+        size_t idx = hh_hmapget(root->inner.stats.inner, &key);
         if(idx == SIZE_MAX) {
             // insert the first data point for this profiler
             hh_bench_t bench = { .mean = elapsed, .count = 1 };
-            hh_hmapinsert(root->stats_or_parent.stats.inner, &key, bench);
+            hh_hmapinsert(root->inner.stats.inner, &key, bench);
         } else {
             // the key already exists, so remove the one we constructed
-            hh_darrheader(root->stats_or_parent.stats.keys)->len = offset;
+            hh_darrheader(root->inner.stats.keys)->len = offset;
             // compute incremental mean
-            hh_bench_update(&root->stats_or_parent.stats.inner[idx].val, elapsed);
+            hh_bench_update(&root->inner.stats.inner[idx].val, elapsed);
         }
     }
 }

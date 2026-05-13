@@ -29,52 +29,43 @@
 #include <sys/time.h>
 #endif // not _WIN32
 
-// log only errors
-// #define HH_LOG HH_LOG_ERR
-// log errors and messages
-// #define HH_LOG HH_LOG_MSG
-// log everything
-// #define HH_LOG HH_LOG_DBG
-#define HH_LOG_ERR 0
-#define HH_LOG_MSG 1
-#define HH_LOG_DBG 2
+// to enable logging, define HH_LOG to be one of the following
+#define HH_LOG_ERR (1 << 0) // log only errors
+#define HH_LOG_MSG (1 << 1) // log info and errors
+#define HH_LOG_DBG (1 << 2) // log everything
 
-#ifndef HH_ERR_STREAM
-#define HH_ERR_STREAM stderr
-#endif // not HH_ERR_STREAM
-#ifndef HH_MSG_STREAM
-#define HH_MSG_STREAM stdout
-#endif // not HH_MSG_STREAM
-#ifndef HH_DBG_STREAM
-#define HH_DBG_STREAM stdout
-#endif // not HH_DBG_STREAM
+// change the log level through bitflags:
+// hh_log_stream(HH_LOG_ERR | HH_LOG_DBG, fopen("log.txt", "a"))
+// passing NULL resets the standard log stream for that level
+void
+hh_log_stream(int level, FILE* stream);
 
 // all logging functions have the same behavior as printf,
 // HH_ERR logs to stderr instead of stdout
 #ifdef HH_LOG
 #if HH_LOG >= HH_LOG_DBG
 #define HH_DBG(...) do { \
-    fprintf(HH_DBG_STREAM, "DEBUG [%s:%d]: ", __FILE__, __LINE__); \
-    fprintf(HH_DBG_STREAM, __VA_ARGS__); \
-    fputc('\n', HH_DBG_STREAM); \
+    fprintf((HH_DBG_STREAM == NULL) ? stdout : HH_DBG_STREAM, "DEBUG [%s:%d]: ", __FILE__, __LINE__); \
+    fprintf((HH_DBG_STREAM == NULL) ? stdout : HH_DBG_STREAM, __VA_ARGS__); \
+    fputc('\n', (HH_DBG_STREAM == NULL) ? stdout : HH_DBG_STREAM); \
 } while(0)
 #else // HH_LOG >= HH_LOG_DBG
 #define HH_DBG(...)
 #endif // HH_LOG < HH_LOG_DBG
 #if HH_LOG >= HH_LOG_MSG
 #define HH_MSG(...) do { \
-    fprintf(HH_MSG_STREAM, "INFO [%s:%d]: ", __FILE__, __LINE__); \
-    fprintf(HH_MSG_STREAM, __VA_ARGS__); \
-    fputc('\n', HH_MSG_STREAM); \
+    fprintf((HH_MSG_STREAM == NULL) ? stdout : HH_MSG_STREAM, "INFO [%s:%d]: ", __FILE__, __LINE__); \
+    fprintf((HH_MSG_STREAM == NULL) ? stdout : HH_MSG_STREAM, __VA_ARGS__); \
+    fputc('\n', (HH_MSG_STREAM == NULL) ? stdout : HH_MSG_STREAM); \
 } while(0)
 #else // HH_LOG >= HH_LOG_MSG
 #define HH_MSG(...)
 #endif // HH_LOG < HH_LOG_MSG
 #if HH_LOG >= HH_LOG_ERR
 #define HH_ERR(...) do { \
-    fprintf(HH_ERR_STREAM, "ERROR [%s:%d]: ", __FILE__, __LINE__); \
-    fprintf(HH_ERR_STREAM, __VA_ARGS__); \
-    fputc('\n', HH_ERR_STREAM); \
+    fprintf((HH_ERR_STREAM == NULL) ? stdout : HH_ERR_STREAM, "ERROR [%s:%d]: ", __FILE__, __LINE__); \
+    fprintf((HH_ERR_STREAM == NULL) ? stdout : HH_ERR_STREAM, __VA_ARGS__); \
+    fputc('\n', (HH_ERR_STREAM == NULL) ? stdout : HH_ERR_STREAM); \
 } while(0)
 #else // HH_LOG >= HH_LOG_ERR
 #define HH_ERR(...)
@@ -91,17 +82,17 @@
 // the log statement produced is automatically newline-terminated 
 #ifdef HH_LOG
 #if HH_LOG >= HH_LOG_DBG
-#define HH_DBG_BLOCK HH_LOG_BLOCK(HH_DBG_STREAM, "DEBUG")
+#define HH_DBG_BLOCK HH_LOG_BLOCK((HH_DBG_STREAM == NULL) ? stdout : HH_DBG_STREAM, "DEBUG")
 #else
 #define HH_DBG_BLOCK if(0)
 #endif // HH_DBG
 #if HH_LOG >= HH_LOG_MSG
-#define HH_MSG_BLOCK HH_LOG_BLOCK(HH_MSG_STREAM, "INFO")
+#define HH_MSG_BLOCK HH_LOG_BLOCK((HH_MSG_STREAM == NULL) ? stdout : HH_MSG_STREAM, "INFO")
 #else
 #define HH_MSG_BLOCK if(0)
 #endif // HH_MSG
 #if HH_LOG >= HH_LOG_ERR
-#define HH_ERR_BLOCK HH_LOG_BLOCK(HH_ERR_STREAM, "ERROR")
+#define HH_ERR_BLOCK HH_LOG_BLOCK((HH_ERR_STREAM == NULL) ? stdout : HH_ERR_STREAM, "ERROR")
 #else
 #define HH_ERR_BLOCK if(0)
 #endif // HH_ERR
@@ -110,7 +101,7 @@
 #define HH_DBG_BLOCK if(0)
 #define HH_MSG_BLOCK if(0)
 #define HH_ERR_BLOCK if(0)
-#define HH_LOG_APPEND(...)
+#define HH_LOG_APPEND(...) {}
 #undef HH_LOG_BLOCK
 #endif // HH_LOG
 
@@ -629,11 +620,22 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp);
 #include <sys/stat.h>
 #endif // _WIN32
 
+static FILE* HH_DBG_STREAM = NULL;
+static FILE* HH_MSG_STREAM = NULL;
+static FILE* HH_ERR_STREAM = NULL;
+
+void
+hh_log_stream(int level, FILE* stream) {
+    if(HH_LOG_DBG & level) HH_DBG_STREAM = stream;
+    if(HH_LOG_MSG & level) HH_MSG_STREAM = stream;
+    if(HH_LOG_ERR & level) HH_ERR_STREAM = stream;
+}
+
 void*
 HH__malloc_checked(size_t size, const char* file, int line) {
     void* ptr = malloc(size);
     if(ptr == NULL) {
-        fprintf(HH_ERR_STREAM, "ERROR [%s:%d]: "
+        fprintf((HH_ERR_STREAM == NULL) ? stdout : HH_ERR_STREAM, "ERROR [%s:%d]: "
             "Failed to allocate %llu bytes\n", 
             file, line, (unsigned long long) size);
         abort();
@@ -645,7 +647,7 @@ void*
 HH__calloc_checked(size_t num, size_t size, const char* file, int line) {
     void* ptr = calloc(num, size);
     if(ptr == NULL) {
-        fprintf(HH_ERR_STREAM, "ERROR [%s:%d]: "
+        fprintf((HH_ERR_STREAM == NULL) ? stdout : HH_ERR_STREAM, "ERROR [%s:%d]: "
             "Failed to allocate %llu objects [%llu bytes]\n", 
             file, line, (unsigned long long) num, (unsigned long long) (size * num));
         abort();

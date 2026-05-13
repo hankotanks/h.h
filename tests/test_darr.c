@@ -52,6 +52,7 @@ main(void) {
             }
             LOG_APPEND("\"");
         }
+        (void) tmp;
         ASSERT(darrlen(arr) + 1 == (j - i), 
             "hh_darrswapdel failed to remove element: len = %zu, expected = %zu", darrlen(arr), j - i - 1);
     }
