@@ -34,38 +34,41 @@
 #define HH_LOG_MSG (1 << 1) // log info and errors
 #define HH_LOG_DBG (1 << 2) // log everything
 
-// change the log level through bitflags:
-// hh_log_stream(HH_LOG_ERR | HH_LOG_DBG, fopen("log.txt", "a"))
+// change the streams for different log levels through bitflags:
+// hh_log_stream_set(HH_LOG_ERR | HH_LOG_DBG, fopen("log.txt", "a"))
 // passing NULL resets the standard log stream for that level
 void
-hh_log_stream(int level, FILE* stream);
+hh_log_stream_set(int level, FILE* stream);
+// unlike the setter, this does not accept multiple log levels
+FILE*
+hh_log_stream_get(int level);
 
 // all logging functions have the same behavior as printf,
 // HH_ERR logs to stderr instead of stdout
 #ifdef HH_LOG
 #if HH_LOG >= HH_LOG_DBG
 #define HH_DBG(...) do { \
-    fprintf((HH_DBG_STREAM == NULL) ? stdout : HH_DBG_STREAM, "DEBUG [%s:%d]: ", __FILE__, __LINE__); \
-    fprintf((HH_DBG_STREAM == NULL) ? stdout : HH_DBG_STREAM, __VA_ARGS__); \
-    fputc('\n', (HH_DBG_STREAM == NULL) ? stdout : HH_DBG_STREAM); \
+    fprintf(hh_log_stream_get(HH_LOG_DBG), "DEBUG [%s:%d]: ", __FILE__, __LINE__); \
+    fprintf(hh_log_stream_get(HH_LOG_DBG), __VA_ARGS__); \
+    fputc('\n', hh_log_stream_get(HH_LOG_DBG)); \
 } while(0)
 #else // HH_LOG >= HH_LOG_DBG
 #define HH_DBG(...)
 #endif // HH_LOG < HH_LOG_DBG
 #if HH_LOG >= HH_LOG_MSG
 #define HH_MSG(...) do { \
-    fprintf((HH_MSG_STREAM == NULL) ? stdout : HH_MSG_STREAM, "INFO [%s:%d]: ", __FILE__, __LINE__); \
-    fprintf((HH_MSG_STREAM == NULL) ? stdout : HH_MSG_STREAM, __VA_ARGS__); \
-    fputc('\n', (HH_MSG_STREAM == NULL) ? stdout : HH_MSG_STREAM); \
+    fprintf(hh_log_stream_get(HH_LOG_MSG), "INFO [%s:%d]: ", __FILE__, __LINE__); \
+    fprintf(hh_log_stream_get(HH_LOG_MSG), __VA_ARGS__); \
+    fputc('\n', hh_log_stream_get(HH_LOG_MSG)); \
 } while(0)
 #else // HH_LOG >= HH_LOG_MSG
 #define HH_MSG(...)
 #endif // HH_LOG < HH_LOG_MSG
 #if HH_LOG >= HH_LOG_ERR
 #define HH_ERR(...) do { \
-    fprintf((HH_ERR_STREAM == NULL) ? stdout : HH_ERR_STREAM, "ERROR [%s:%d]: ", __FILE__, __LINE__); \
-    fprintf((HH_ERR_STREAM == NULL) ? stdout : HH_ERR_STREAM, __VA_ARGS__); \
-    fputc('\n', (HH_ERR_STREAM == NULL) ? stdout : HH_ERR_STREAM); \
+    fprintf(hh_log_stream_get(HH_LOG_ERR), "ERROR [%s:%d]: ", __FILE__, __LINE__); \
+    fprintf(hh_log_stream_get(HH_LOG_ERR), __VA_ARGS__); \
+    fputc('\n', hh_log_stream_get(HH_LOG_ERR)); \
 } while(0)
 #else // HH_LOG >= HH_LOG_ERR
 #define HH_ERR(...)
@@ -82,17 +85,17 @@ hh_log_stream(int level, FILE* stream);
 // the log statement produced is automatically newline-terminated 
 #ifdef HH_LOG
 #if HH_LOG >= HH_LOG_DBG
-#define HH_DBG_BLOCK HH_LOG_BLOCK((HH_DBG_STREAM == NULL) ? stdout : HH_DBG_STREAM, "DEBUG")
+#define HH_DBG_BLOCK HH_LOG_BLOCK(hh_log_stream_get(HH_LOG_DBG), "DEBUG")
 #else
 #define HH_DBG_BLOCK if(0)
 #endif // HH_DBG
 #if HH_LOG >= HH_LOG_MSG
-#define HH_MSG_BLOCK HH_LOG_BLOCK((HH_MSG_STREAM == NULL) ? stdout : HH_MSG_STREAM, "INFO")
+#define HH_MSG_BLOCK HH_LOG_BLOCK(hh_log_stream_get(HH_LOG_MSG), "INFO")
 #else
 #define HH_MSG_BLOCK if(0)
 #endif // HH_MSG
 #if HH_LOG >= HH_LOG_ERR
-#define HH_ERR_BLOCK HH_LOG_BLOCK((HH_ERR_STREAM == NULL) ? stdout : HH_ERR_STREAM, "ERROR")
+#define HH_ERR_BLOCK HH_LOG_BLOCK(hh_log_stream_get(HH_LOG_ERR), "ERROR")
 #else
 #define HH_ERR_BLOCK if(0)
 #endif // HH_ERR
@@ -625,10 +628,19 @@ static FILE* HH_MSG_STREAM = NULL;
 static FILE* HH_ERR_STREAM = NULL;
 
 void
-hh_log_stream(int level, FILE* stream) {
+hh_log_stream_set(int level, FILE* stream) {
     if(HH_LOG_DBG & level) HH_DBG_STREAM = stream;
     if(HH_LOG_MSG & level) HH_MSG_STREAM = stream;
     if(HH_LOG_ERR & level) HH_ERR_STREAM = stream;
+    HH_UNREACHABLE;
+}
+
+FILE*
+hh_log_stream_get(int level) {
+    if(HH_LOG_DBG & level) return (HH_DBG_STREAM == NULL) ? stdout : HH_DBG_STREAM;
+    if(HH_LOG_MSG & level) return (HH_MSG_STREAM == NULL) ? stdout : HH_MSG_STREAM;
+    if(HH_LOG_ERR & level) return (HH_ERR_STREAM == NULL) ? stderr : HH_ERR_STREAM;
+    HH_UNREACHABLE;
 }
 
 void*
