@@ -149,6 +149,7 @@ hh_log_stream_get(int level);
 // wrappers that assert allocation success
 #define hh_malloc_checked(size) HH__malloc_checked((size), __FILE__, __LINE__)
 #define hh_calloc_checked(num, size) HH__calloc_checked((num), (size), __FILE__, __LINE__)
+#define hh_realloc_checked(ptr, size) HH__realloc_checked((void**) &(ptr), (size), __FILE__, __LINE__)
 
 // union to easily pass around and store function pointers as data pointers
 // without breaking C99 conventions
@@ -295,21 +296,31 @@ hh_timer_duration(hh_timer_t from);
 // in both cases, the pointers... point to the key's bytes
 typedef size_t (*hh_hash_f)(const void* ptr, size_t sz);
 typedef int    (*hh_comp_f)(const void* fst, const void* snd, size_t sz);
+typedef void   (*hh_copy_f)(void* dst, const void* key, size_t sz);
 
 // default hash implementation
 size_t
 hh_hash_djb2(const void* ptr, size_t sz);
 
 // implementation for cstr keys
-// example:
+// EXAMPLE (non-owning):
 // struct { const char* key; int val; }* map = NULL;
 // hh_hmapconfig(map, .key_f.hash = hh_hash_cstr, .key_f.comp = hh_comp_cstr);
+// const char* temp = "hello";
+// hh_hmapinsert(map, &temp, 42);
+// EXAMPLE (owning):
+// struct { const char key[32]; int val; }* map = NULL;
+// hh_hmapconfig(map, .key_f.hash = hh_hash_cstr, .key_f.comp = hh_comp_cstr_owned, .key_f.copy = hh_copy_cstr);
 // const char* temp = "hello";
 // hh_hmapinsert(map, &temp, 42);
 size_t
 hh_hash_cstr(const void* ptr, size_t sz);
 int
 hh_comp_cstr(const void* fst, const void* snd, size_t sz);
+int
+hh_comp_cstr_owned(const void* fst, const void* snd, size_t sz);
+void
+hh_copy_cstr(void* dst, const void* ptr, size_t sz);
 
 // configuration options for hmap
 // applied through hh_hmapconfig
@@ -318,6 +329,7 @@ typedef struct {
     struct {
         hh_hash_f hash;
         hh_comp_f comp;
+        hh_copy_f copy;
         void (*free)(void* ptr);
     } key_f;
     struct {
@@ -483,6 +495,8 @@ void*
 HH__malloc_checked(size_t size, const char* file, int line);
 void*
 HH__calloc_checked(size_t num, size_t size, const char* file, int line);
+void*
+HH__realloc_checked(void** ptr, size_t size, const  char* file, int line);
 
 // initial capacity of dynamic array
 #ifndef HH_DARR_INITIAL_CAPACITY
@@ -734,6 +748,20 @@ HH__calloc_checked(size_t num, size_t size, const char* file, int line) {
         abort();
     }
     return ptr;
+}
+
+void*
+HH__realloc_checked(void** ptr, size_t size, const char* file, int line) {
+    void* tmp = *ptr;
+    void* ret = realloc(tmp, size);
+    if(ret == NULL) {
+        fprintf((HH_ERR_STREAM == NULL) ? stdout : HH_ERR_STREAM, "ERROR [%s:%d]: "
+            "Failed to allocate %llu bytes\n", 
+            file, line, (unsigned long long) size);
+        abort();
+    }
+    *ptr = ret;
+    return ret;
 }
 
 void 
@@ -1022,6 +1050,20 @@ hh_comp_cstr(const void* fst, const void* snd, size_t sz) {
     return strcmp(*((const char**) fst), *((const char**) snd));
 }
 
+int
+hh_comp_cstr_owned(const void* fst, const void* snd, size_t sz) {
+    (void) sz;
+    return strcmp(*((const char**) fst), (const char*) snd);
+}
+
+void
+hh_copy_cstr(void* dst, const void* ptr, size_t sz) {
+    const char* str = *((const char**) ptr);
+    size_t len_name = HH_MIN(sz - 1, strlen(str));
+    ((char*) dst)[len_name] = '\0';
+    memcpy(dst, str, len_name);
+}
+
 static inline void*
 HH__hmapgrow(void** map_ptr, size_t n) {
     HH_ASSERT_INVARIANT(map_ptr != NULL);
@@ -1089,7 +1131,11 @@ HH__hmapinsert(void** map_ptr, hh_hmapprop_t prop, const void* key) {
     }
     // add the new element
     memset(entry_start, 0, map_hdr->prop.sz_entry);
-    memcpy(entry_start + map_hdr->prop.off_key, key, map_hdr->prop.sz_key);
+    if(map_hdr->opt.key_f.copy == NULL) {
+        memcpy(entry_start + map_hdr->prop.off_key, key, map_hdr->prop.sz_key);
+    } else {
+        (map_hdr->opt.key_f.copy)(entry_start + map_hdr->prop.off_key, key, map_hdr->prop.sz_key);
+    }
     // add the corresponding bucket entry
     if(idx == SIZE_MAX) {
         hh_darrput(map_hdr->buckets[HH__hmapbucketindex(map_hdr, key)], map_hdr->len);
@@ -1525,6 +1571,7 @@ hh_span_next_opt(hh_span_t* span, hh_span_opt opt) {
 #define UNREACHABLE HH_UNREACHABLE
 #define malloc_checked hh_malloc_checked
 #define calloc_checked hh_calloc_checked
+#define realloc_checked hh_realloc_checked
 #define fp_wrap_t hh_fp_wrap_t
 #define fp_wrap hh_fp_wrap
 #define fp_unwrap hh_fp_unwrap
@@ -1569,6 +1616,8 @@ hh_span_next_opt(hh_span_t* span, hh_span_opt opt) {
 #define hash_djb2 hh_hash_djb2
 #define hash_cstr hh_hash_cstr
 #define comp_cstr hh_comp_cstr
+#define comp_cstr_owned hh_comp_cstr_owned
+#define copy_cstr hh_copy_cstr
 #define hmap_opt hh_hmap_opt
 #define hmapconfig hh_hmapconfig
 #define hmaplen hh_hmaplen
@@ -1597,8 +1646,5 @@ hh_span_next_opt(hh_span_t* span, hh_span_opt opt) {
 #define span_fmt_args hh_span_fmt_args
 #define span hh_span
 #define span_next hh_span_next
-#define span_next_lf hh_span_next_lf
-#define span_next_ld hh_span_next_ld
-#define span_next_zu hh_span_next_zu
 #endif // HH_APPLY_PREFIXES
 #endif // not HH__APPLY_PREFIXES
