@@ -1,5 +1,4 @@
 #define HH_IMPLEMENTATION
-#define HH_STRIP_PREFIXES
 #include "h.h"
 
 int

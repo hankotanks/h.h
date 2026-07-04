@@ -8,9 +8,7 @@ endif
 
 PROJECT_ROOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
-CFLAGS := -ggdb3 -std=c99 -Wall -Wextra -Wconversion -Wpedantic -I$(PROJECT_ROOT)
-CFLAGS += -DPROJECT_ROOT=\"$(PROJECT_ROOT)\"
-CFLAGS += -DHH_LOG=HH_LOG_DBG
+CFLAGS := -ggdb3 -std=c99 -Wall -Wextra -Wconversion -Wpedantic -I$(PROJECT_ROOT) -DPROJECT_ROOT=\"$(PROJECT_ROOT)\"
 
 ifeq ($(OS),Windows_NT)
     SUF := .exe
@@ -25,10 +23,10 @@ HEADERS_DIR := $(PROJECT_ROOT)include
 HEADERS := $(wildcard $(HEADERS_DIR)/*.h)
 
 $(TESTS_DIR)/%$(SUF): $(TESTS_DIR)/%.c h.h
-	$(CC) $(CFLAGS) $< -o $@ 
-	@echo "Running $(notdir $@)."
+	@$(CC) $(CFLAGS) $< -o $@ 
+	@echo "[$(notdir $@)] started"
 	@$@
-	@echo "Exited $(notdir $@) with code $$?."
+	@echo "[$(notdir $@)] exited with code $$?"
 	@$(RM) $@
 
 $(OUT): $(OUT).m4 $(HEADERS)
@@ -38,4 +36,4 @@ test: $(addsuffix $(SUF),$(basename $(TESTS))) $(OUT)
 
 all: $(OUT)
 
-.PHONY: all 
+.PHONY: all test

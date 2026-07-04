@@ -1,7 +1,6 @@
 #ifndef HH__
 #define HH__
 
-// SECTION(HEADER)
 #ifndef _WIN32
 #ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE
@@ -379,7 +378,63 @@ hh_memflip(char* ptr, const char* end);
 // reverses n bytes starting at ptr, in-place
 void 
 hh_memflipn(char* ptr, size_t n);
-// SECTION(HEADER, END)
+
+// simple struct for calculating an incremental average
+typedef struct {
+    double mean;
+    size_t count;
+} hh_bench_t;
+
+// add a data point to the benchmark
+void
+hh_bench_update(hh_bench_t* bench, double entry);
+
+// struct representing a profiler
+typedef struct HH__profiler_t hh_profiler_t;
+
+// create a new profiler, these can be nested
+hh_profiler_t
+hh_profiler_start(const char* name, hh_profiler_t* parent);
+// child profilers report their results to the parent, 
+// the root profile print their statistics
+void
+hh_profiler_end(hh_profiler_t* profiler);
+
+// hh_span_t is a string-view interface
+// intended for parsing
+typedef struct {
+    char* ptr;
+    char* end;
+} hh_span_t;
+
+// options for the hh_span_next family of functions/macros
+// delim: the separator sequence used to split tokens
+// delim_as_set: treat `delim` as a set of possible delimiters rather than a sequence
+// eol: treat '\n' as a valid delimiter
+// trim: trim whitespace around tokens
+typedef struct {
+    const char* delim;
+    _Bool delim_as_set;
+    _Bool eol;
+    _Bool trim;
+} hh_span_opt;
+
+// returns the length of the span
+#define hh_span_len(span) (((span).ptr != NULL && (span).end != NULL) ? ((size_t) ((span).end - (span).ptr)) : 0)
+
+// format specifier and arg macro for span's
+// printf(hh_span_fmt "\n", hh_span_fmt_args(span));
+#define hh_span_fmt "%.*s"
+#define hh_span_fmt_args(span) ((int) hh_span_len(span)), ((span).ptr)
+
+// TODO: consider implementing a const version of hh_span_t
+// creates a stack-allocated span from a null-terminated cstr
+// the span does NOT contain the null-terminator
+hh_span_t
+hh_span(char* contents);
+
+// grabs the next token from the span
+#define hh_span_next(span, ...) hh_span_next_opt((span), (hh_span_opt) { __VA_ARGS__ })
 
 //
 //
@@ -397,7 +452,6 @@ hh_memflipn(char* ptr, size_t n);
 //
 //
 
-// SECTION(HEADER_PRIVATE)
 #ifdef HH_LOG
 #define HH_LOG_BLOCK(stream, name) for(uintptr_t \
     HH_LOG_BLOCK_stream  = (uintptr_t) (stream), \
@@ -603,10 +657,25 @@ ptrdiff_t // NO PREFIX STRIPPING
 hh_getdelim(char** buf, size_t* bufsiz, int delimiter, FILE* fp);
 ptrdiff_t // NO PREFIX STRIPPING
 hh_getline(char** buf, size_t* bufsiz, FILE* fp);
-// SECTION(HEADER_PRIVATE, END)
+
+struct HH__profiler_t {
+    const char* name;
+    hh_timer_t timer;
+    _Bool root;
+    union {
+        struct {
+            struct { const char* key;  hh_bench_t val; }* inner;
+            char* keys;
+        } stats;
+        hh_profiler_t* parent;
+    } inner;
+};
+
+hh_span_t
+hh_span_next_opt(hh_span_t* s, hh_span_opt opt);
 
 #ifdef HH_IMPLEMENTATION
-// SECTION(IMPLEMENTATION)
+
 // implementation-exclusive includes
 #include <ctype.h>
 #include <errno.h>
@@ -1285,14 +1354,157 @@ ptrdiff_t
 hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
     return hh_getdelim(buf, bufsiz, '\n', fp);
 }
-// SECTION(IMPLEMENTATION, END)
+
+void
+hh_bench_update(hh_bench_t* bench, double entry) {
+    bench->count++;
+    bench->mean += (entry - bench->mean) / (double) bench->count; 
+}
+
+hh_profiler_t
+hh_profiler_start(const char* name, hh_profiler_t* parent) {
+    HH_ASSERT_INVARIANT(name != NULL);
+    HH_ASSERT_INVARIANT(strlen(name) > 0);
+    hh_profiler_t profiler = { 
+        .name = name, 
+        .timer = hh_timer_start(), 
+        .root = (parent == NULL) 
+    };
+    if(profiler.root) {
+        hh_hmapconfig(profiler.inner.stats.inner, .key_f = {
+                .hash = hh_hash_cstr,
+                .comp = hh_comp_cstr
+            });
+    } else profiler.inner.parent = parent;
+    return profiler;
+}
+
+static inline void
+HH__profiler_full_name(hh_profiler_t* root, const hh_profiler_t* profiler) {
+    HH_ASSERT_INVARIANT(root != NULL);
+    HH_ASSERT_INVARIANT(profiler != NULL);
+    if(!profiler->root) {
+        HH__profiler_full_name(root, profiler->inner.parent);
+        hh_darrputstr(root->inner.stats.keys, "/");
+    }
+    hh_darrputstr(root->inner.stats.keys, profiler->name);
+}
+
+void
+hh_profiler_end(hh_profiler_t* profiler) {
+    HH_ASSERT_INVARIANT(profiler != NULL);
+    HH_ASSERT_INVARIANT(profiler->name != NULL);
+    double elapsed = hh_timer_duration(profiler->timer);
+    if(profiler->root) {
+        // dump results
+        HH_DBG_BLOCK {
+            HH_LOG_APPEND("Results from \"%s\" profiler...\n", profiler->name);
+            HH_LOG_APPEND("  %s: %.2lfms [1 sample]\n", profiler->name, elapsed);
+            hh_bench_t bench;
+            for(size_t i = 0; i < hh_hmaplen(profiler->inner.stats.inner); ++i) {
+                bench = profiler->inner.stats.inner[i].val;
+                HH_LOG_APPEND("  %s: %.2lfms [%zu sample%s]\n", 
+                    profiler->inner.stats.inner[i].key, 
+                    bench.mean, bench.count, bench.count == 1 ? "" : "s");
+            }
+            (void) bench;
+        }
+        hh_hmapfree(profiler->inner.stats.inner);
+        hh_darrfree(profiler->inner.stats.keys);
+    } else {
+        // find the root profiler
+        hh_profiler_t* root = profiler->inner.parent;
+        while(!root->root) root = root->inner.parent;
+        // construct the current profiler's full name
+        size_t offset = hh_darrlen(root->inner.stats.keys);
+        // NOTE: this is done under the assumption that hh_darrputstr 
+        // only strips one instance of '\0' at the end of the string
+        hh_darrput(root->inner.stats.keys, '\0');
+        HH__profiler_full_name(root, profiler);
+        const char* key = root->inner.stats.keys + offset;
+        // check if it's the first iteration
+        size_t idx = hh_hmapget(root->inner.stats.inner, &key);
+        if(idx == SIZE_MAX) {
+            // insert the first data point for this profiler
+            hh_bench_t bench = { .mean = elapsed, .count = 1 };
+            hh_hmapinsert(root->inner.stats.inner, &key, bench);
+        } else {
+            // the key already exists, so remove the one we constructed
+            hh_darrheader(root->inner.stats.keys)->len = offset;
+            // compute incremental mean
+            hh_bench_update(&root->inner.stats.inner[idx].val, elapsed);
+        }
+    }
+}
+
+
+hh_span_t
+hh_span(char* str) {
+    if(str == NULL) return (hh_span_t) {0};
+    return (hh_span_t) { .ptr = str, .end = str + strlen(str) };
+}
+
+size_t
+HH__span_matches(hh_span_t* span, hh_span_opt opt) {
+    if(span->ptr == span->end) return SIZE_MAX;
+    if(opt.eol && span->ptr[0] == '\n') return 1;
+    if(opt.delim == NULL) return 0;
+    if(opt.delim_as_set) {
+        return (strchr(opt.delim, span->ptr[0]) != 0);
+    } else {
+        size_t count;
+        count = strlen(opt.delim);
+        if(span->ptr + count >= span->end) return 0;
+        return (strncmp(span->ptr, opt.delim, count) == 0) ? count : 0;
+    }
+}
+
+hh_span_t
+hh_span_next_opt(hh_span_t* span, hh_span_opt opt) {
+    const char* whitespace = opt.eol ? " \t\r" : " \t\r\n";
+    hh_span_t temp = { .end = span->end };
+    if(span->ptr == span->end) return temp;
+    if(opt.trim) {
+        while(strchr(whitespace, span->ptr[0]) != 0) ++(span->ptr);
+    }
+    size_t count;
+    for(char* cur = span->ptr, *adv; cur <= span->end; ++cur) {
+        temp.ptr = cur;
+        count = HH__span_matches(&temp, opt);
+        if(count == SIZE_MAX) {
+            if(opt.trim) {
+                --cur;
+                while(cur > span->ptr && strchr(whitespace, cur[0]) != 0) --cur;
+                ++cur;
+            }
+            temp.ptr = span->ptr;
+            temp.end = cur;
+            span->ptr = span->end;
+            return temp;
+        }
+        if(count > 0) {
+            adv = cur + count;
+            if(opt.trim) {
+                --cur;
+                while(cur > span->ptr && strchr(whitespace, cur[0]) != 0) --cur;
+                ++cur;
+                while(adv < span->end && strchr(whitespace, adv[0]) != 0) ++adv;
+            }
+            temp.ptr = span->ptr;
+            temp.end = cur;
+            span->ptr = adv;
+            return temp;
+        }
+    }
+    temp.ptr = NULL;
+    return temp;
+}
 #endif // HH_IMPLEMENTATION
 #endif // HH__
-
 #ifndef HH__APPLY_PREFIXES
 #define HH__APPLY_PREFIXES
-#ifndef HH_APPLY_PREFIXES
-// SECTION(PREFIX)
+#ifndef HH_APPLY_PREFIXES 
+
 #define DBG HH_DBG
 #define MSG HH_MSG
 #define ERR HH_ERR
@@ -1371,6 +1583,22 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define memswap hh_memswap
 #define memflip hh_memflip
 #define memflipn hh_memflipn
-// SECTION(PREFIX, END)
+
+#define bench_t hh_bench_t
+#define bench_update hh_bench_update
+#define profiler_t hh_profiler_t
+#define profiler_start hh_profiler_start
+#define profiler_end hh_profiler_end
+
+#define span_t hh_span_t
+#define span_opt hh_span_opt
+#define span_len hh_span_len
+#define span_fmt hh_span_fmt
+#define span_fmt_args hh_span_fmt_args
+#define span hh_span
+#define span_next hh_span_next
+#define span_next_lf hh_span_next_lf
+#define span_next_ld hh_span_next_ld
+#define span_next_zu hh_span_next_zu
 #endif // HH_APPLY_PREFIXES
 #endif // not HH__APPLY_PREFIXES

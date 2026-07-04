@@ -144,9 +144,9 @@ hh_profiler_end(hh_profiler_t* profiler) {
 #endif // HH_IMPLEMENTATION
 #endif // HH_PROFILER__
 
-#ifndef HH__STRIP_PREFIXES
-#define HH__STRIP_PREFIXES
-#ifdef HH_STRIP_PREFIXES
+#ifndef HH__APPLY_PREFIXES
+#define HH__APPLY_PREFIXES
+#ifndef HH_APPLY_PREFIXES
 // SECTION(PREFIX)
 #define bench_t hh_bench_t
 #define bench_update hh_bench_update
@@ -154,5 +154,5 @@ hh_profiler_end(hh_profiler_t* profiler) {
 #define profiler_start hh_profiler_start
 #define profiler_end hh_profiler_end
 // SECTION(PREFIX, END)
-#endif // HH_STRIP_PREFIXES
-#endif // not HH__STRIP_PREFIXES
+#endif // HH_APPLY_PREFIXES
+#endif // not HH__APPLY_PREFIXES

@@ -32,9 +32,9 @@ undivert(2)
 undivert(3)dnl
 #endif // HH_IMPLEMENTATION
 #endif // HH__
-#ifndef HH__STRIP_PREFIXES
-#define HH__STRIP_PREFIXES
-#ifdef HH_STRIP_PREFIXES 
+#ifndef HH__APPLY_PREFIXES
+#define HH__APPLY_PREFIXES
+#ifndef HH_APPLY_PREFIXES 
 undivert(4)dnl
-#endif // HH_STRIP_PREFIXES
-#endif // not HH__STRIP_PREFIXES
+#endif // HH_APPLY_PREFIXES
+#endif // not HH__APPLY_PREFIXES
