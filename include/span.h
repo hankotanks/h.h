@@ -39,6 +39,11 @@ hh_span(char* contents);
 
 // grabs the next token from the span
 #define hh_span_next(span, ...) hh_span_next_opt((span), (hh_span_opt) { __VA_ARGS__ })
+
+size_t 
+hh_hash_span(const void* ptr, size_t sz);
+int
+hh_comp_span(const void* fst, const void* snd, size_t sz);
 // SECTION(HEADER, END)
 
 //
@@ -81,7 +86,7 @@ HH__span_matches(hh_span_t* span, hh_span_opt opt) {
     } else {
         size_t count;
         count = strlen(opt.delim);
-        if(span->ptr + count >= span->end) return 0;
+        if(span->ptr + count > span->end) return 0;
         return (strncmp(span->ptr, opt.delim, count) == 0) ? count : 0;
     }
 }
@@ -126,6 +131,25 @@ hh_span_next_opt(hh_span_t* span, hh_span_opt opt) {
     temp.ptr = NULL;
     return temp;
 }
+
+size_t 
+hh_hash_span(const void* ptr, size_t sz) {
+    (void) sz;
+    const hh_span_t* s = ptr;
+    return hh_hash_djb2(s->ptr, hh_span_len(*s));
+}
+
+int
+hh_comp_span(const void* fst, const void* snd, size_t sz) {
+    (void) sz;
+    const hh_span_t* span_fst = fst;
+    const hh_span_t* span_snd = snd;
+    size_t len_fst = hh_span_len(*span_fst);
+    size_t len_snd = hh_span_len(*span_snd);
+    int ret = memcmp(span_fst->ptr, span_snd->ptr, HH_MIN(len_fst, len_snd));
+    if(ret != 0) return ret;
+    return (len_fst > len_snd) - (len_fst < len_snd);
+}
 // SECTION(IMPLEMENTATION, END)
 #endif // HH_IMPLEMENTATION
 #endif // HH_SPAN__
@@ -141,6 +165,8 @@ hh_span_next_opt(hh_span_t* span, hh_span_opt opt) {
 #define span_fmt_args hh_span_fmt_args
 #define span hh_span
 #define span_next hh_span_next
+#define hash_span hh_hash_span
+#define comp_span hh_comp_span
 // SECTION(PREFIX, END)
 #endif // HH_APPLY_PREFIXES
 #endif // not HH__APPLY_PREFIXES

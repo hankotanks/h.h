@@ -178,6 +178,7 @@ typedef union {
 // hh_darrlast     returns the last element by value
 // hh_darrput      inserts a value, returns assignment result
 // hh_darrputstr   pushes cstr to a char array (ensures null-termination), return pointer to start of str
+// hh_darrputstrn  same as above, just copies the first n-characters of the string
 // hh_darrpop      removes the last element and returns it by value
 // hh_darradd      adds n zero-initialized elements to the array, returns the index to the 1st new element
 // hh_darrlen      returns array length
@@ -185,17 +186,18 @@ typedef union {
 // hh_darrswap     swaps the elements at 2 indices
 // hh_darrswapdel  deletes the ith element by swapping it with the last element, then popping
 
-#define hh_darrclear(arr)       (((arr) == NULL) ? 0 : (hh_darrheader(arr)->len = 0))
-#define hh_darrfree(arr)        ((void) (((arr) == NULL) ? (void) 0 : free(hh_darrheader(arr))), (arr) = NULL)
-#define hh_darrlast(arr)        ((arr)[hh_darrheader(arr)->len - 1])
-#define hh_darrput(arr, val)    ((void) hh_darrgrow(arr, 1), (arr)[(hh_darrheader(arr)->len)++] = (val))
-#define hh_darrputstr(arr, str) (HH__darrputstr((void**) &(arr), (str)))
-#define hh_darrpop(arr)         ((arr)[--(hh_darrheader(arr)->len)])
-#define hh_darradd(arr, n)      (HH__darraddn((void**) &(arr), (n), sizeof *(arr)))
-#define hh_darrlen(arr)         (((arr) == NULL) ? 0 : hh_darrheader(arr)->len)
-#define hh_darrcap(arr)         (((arr) == NULL) ? 0 : hh_darrheader(arr)->cap)
-#define hh_darrswap(arr, i, j)  (HH__darrswap((arr), (i), (j)))
-#define hh_darrswapdel(arr, i)  (HH__darrswap((arr), (i), hh_darrlen(arr) - 1), hh_darrpop(arr))
+#define hh_darrclear(arr)           (((arr) == NULL) ? 0 : (hh_darrheader(arr)->len = 0))
+#define hh_darrfree(arr)            ((void) (((arr) == NULL) ? (void) 0 : free(hh_darrheader(arr))), (arr) = NULL)
+#define hh_darrlast(arr)            ((arr)[hh_darrheader(arr)->len - 1])
+#define hh_darrput(arr, val)        ((void) hh_darrgrow(arr, 1), (arr)[(hh_darrheader(arr)->len)++] = (val))
+#define hh_darrputstr(arr, str)     (HH__darrputstr((void**) &(arr), (str)))
+#define hh_darrputstrn(arr, str, n) (HH__darrputstrn((void**) &(arr), (str), (n)))
+#define hh_darrpop(arr)             ((arr)[--(hh_darrheader(arr)->len)])
+#define hh_darradd(arr, n)          (HH__darraddn((void**) &(arr), (n), sizeof *(arr)))
+#define hh_darrlen(arr)             (((arr) == NULL) ? 0 : hh_darrheader(arr)->len)
+#define hh_darrcap(arr)             (((arr) == NULL) ? 0 : hh_darrheader(arr)->cap)
+#define hh_darrswap(arr, i, j)      (HH__darrswap((arr), (i), (j)))
+#define hh_darrswapdel(arr, i)      (HH__darrswap((arr), (i), hh_darrlen(arr) - 1), hh_darrpop(arr))
 
 // type representing a memory arena
 typedef struct HH__arena hh_arena;
@@ -471,6 +473,8 @@ HH__darrswap(void* arr, size_t i, size_t j);
 // ensures null-termination and reallocation
 char*
 HH__darrputstr(void** arr_ptr, const char* str);
+char*
+HH__darrputstrn(void** arr_ptr, const char* str, size_t n);
 
 // arena type
 // placed here because the user should never have to interact with it
@@ -617,6 +621,9 @@ ptrdiff_t // NO PREFIX STRIPPING
 hh_getdelim(char** buf, size_t* bufsiz, int delimiter, FILE* fp);
 ptrdiff_t // NO PREFIX STRIPPING
 hh_getline(char** buf, size_t* bufsiz, FILE* fp);
+// NetBSD: strnlen.c,v 1.2 2014/01/09 11:25:11 apb Exp
+size_t
+hh_strnlen(const char *s, size_t maxlen);
 // SECTION(HEADER_PRIVATE, END)
 
 #ifdef HH_IMPLEMENTATION
@@ -741,6 +748,22 @@ HH__darrputstr(void** arr_ptr, const char* str) {
     if(str == NULL && n > 0) ((char**) arr_ptr)[0][idx] = '\0';
     else strcpy(((char**) arr_ptr)[0] + (idx -= (n == 0)), (str));
     return ((char**) arr_ptr)[0] + idx;
+}
+
+char*
+HH__darrputstrn(void** arr_ptr, const char* str, size_t n) {
+    HH_ASSERT_INVARIANT(arr_ptr != NULL);
+    HH_ASSERT_INVARIANT(arr_ptr[0] == NULL || (arr_ptr[0] != NULL && hh_darrheader(arr_ptr[0])->elem_size == 1));
+    if(hh_darrlen(*arr_ptr) > 0) {
+        HH_ASSERT_INVARIANT(hh_darrlast(((char**) arr_ptr)[0]) == '\0');
+        (void) hh_darrpop(((char**) arr_ptr)[0]);
+    }
+    size_t len = hh_strnlen(str, n);
+    size_t off = hh_darradd(((char**) arr_ptr)[0], n);
+    memcpy(((char**) arr_ptr)[0] + off, str, len);
+    if(len < n) memset(((char**) arr_ptr)[0] + off + len, '\0', n - len);
+    hh_darrlast(((char**) arr_ptr)[0]) = '\0';
+    return ((char**) arr_ptr)[0];
 }
 
 void
@@ -1331,6 +1354,41 @@ ptrdiff_t
 hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
     return hh_getdelim(buf, bufsiz, '\n', fp);
 }
+
+/*-
+ * Copyright (c) 2009 David Schultz <das@FreeBSD.org>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+size_t
+hh_strnlen(const char *s, size_t maxlen) {
+	size_t len;
+	for(len = 0; len < maxlen; len++, s++) {
+		if(!*s) break;
+	}
+	return (len);
+}
 // SECTION(IMPLEMENTATION, END)
 #endif // HH_IMPLEMENTATION
 #endif // HH__
@@ -1375,6 +1433,7 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define darrswap hh_darrswap
 #define darrswapdel hh_darrswapdel
 #define darrputstr hh_darrputstr
+#define darrputstrn hh_darrputstrn
 #define arena hh_arena
 #define arena_alloc hh_arena_alloc
 #define arena_free hh_arena_free
