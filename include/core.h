@@ -534,7 +534,7 @@ HH__path_join(char* path, ...);
 #define HH_EDITION 202311L
 #endif // 202311L
 #endif // __STDC_VERSION__
-#endif // __STD__
+#endif // __STDC__
 
 struct HH__timer_t {
 #ifdef _WIN32
@@ -1124,14 +1124,14 @@ hh_hmapfree(const void* map) {
         char* key;
         for(size_t i = 0; i < map_hdr->len; ++i) {
             key = (char*) map + i * map_hdr->prop.sz_entry + map_hdr->prop.off_key;
-            (map_hdr->opt.key_f.free)(*((void**) key));
+            (map_hdr->opt.key_f.free)(key);
         }
     }
     if(map_hdr->opt.val_f.free != NULL) {
         char* val;
         for(size_t i = 0; i < map_hdr->len; ++i) {
             val = (char*) map + i * map_hdr->prop.sz_entry + map_hdr->prop.off_val;
-            (map_hdr->opt.val_f.free)(*((void**) val));
+            (map_hdr->opt.val_f.free)(val);
         }
     }
     for(size_t i = 0; i < map_hdr->opt.bucket_count; ++i) {

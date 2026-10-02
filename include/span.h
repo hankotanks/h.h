@@ -38,12 +38,16 @@ hh_span_t
 hh_span(char* contents);
 
 // grabs the next token from the span
-#define hh_span_next(span, ...) hh_span_next_opt((span), (hh_span_opt) { __VA_ARGS__ })
+#define hh_span_next(span, ...) HH__span_next_opt((span), (hh_span_opt) { __VA_ARGS__ })
 
+// for use in hh_hmap's .key_f.hash and .key_f.comp
 size_t 
 hh_hash_span(const void* ptr, size_t sz);
 int
 hh_comp_span(const void* fst, const void* snd, size_t sz);
+
+// appends a span to an hh_path
+#define hh_path_join_span(path, elem) ((path) = HH__path_join_span((path), (elem)))
 // SECTION(HEADER, END)
 
 //
@@ -64,7 +68,10 @@ hh_comp_span(const void* fst, const void* snd, size_t sz);
 
 // SECTION(HEADER_PRIVATE)
 hh_span_t
-hh_span_next_opt(hh_span_t* s, hh_span_opt opt);
+HH__span_next_opt(hh_span_t* span, hh_span_opt opt);
+
+char*
+HH__path_join_span(char* path, hh_span_t span);
 // SECTION(HEADER_PRIVATE, END)
 
 #ifdef HH_IMPLEMENTATION
@@ -92,7 +99,7 @@ HH__span_matches(hh_span_t* span, hh_span_opt opt) {
 }
 
 hh_span_t
-hh_span_next_opt(hh_span_t* span, hh_span_opt opt) {
+HH__span_next_opt(hh_span_t* span, hh_span_opt opt) {
     const char* whitespace = opt.eol ? " \t\r" : " \t\r\n";
     hh_span_t temp = { .end = span->end };
     if(span->ptr == span->end) return temp;
@@ -150,6 +157,22 @@ hh_comp_span(const void* fst, const void* snd, size_t sz) {
     if(ret != 0) return ret;
     return (len_fst > len_snd) - (len_fst < len_snd);
 }
+
+char*
+HH__path_join_span(char* path, hh_span_t span) {
+    if(hh_span_len(span) == 0) return path;
+    if(span.ptr[0] == '/' || span.ptr[0] == '\\') ++(span.ptr);
+    if(hh_span_len(span) == 0) return path;
+    (void) hh_darrpop(path);
+    if(hh_darrlast(path) != '/') hh_darrput(path, '/');
+    while(span.ptr != span.end) {
+        hh_darrput(path, span.ptr[0]);
+        span.ptr++;
+    }
+    if(hh_darrlen(path) > 2 && hh_darrlast(path) == '/') (void) hh_darrpop(path);
+    hh_darrput(path, '\0');
+    return path;
+}
 // SECTION(IMPLEMENTATION, END)
 #endif // HH_IMPLEMENTATION
 #endif // HH_SPAN__
@@ -167,6 +190,7 @@ hh_comp_span(const void* fst, const void* snd, size_t sz) {
 #define span_next hh_span_next
 #define hash_span hh_hash_span
 #define comp_span hh_comp_span
+#define path_join_span hh_path_join_span
 // SECTION(PREFIX, END)
 #endif // HH_APPLY_PREFIXES
 #endif // not HH__APPLY_PREFIXES

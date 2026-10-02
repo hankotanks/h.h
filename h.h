@@ -407,12 +407,23 @@ hh_bench_update(hh_bench_t* bench, double entry);
 typedef struct HH__profiler_t hh_profiler_t;
 
 // create a new profiler, these can be nested
-hh_profiler_t
-hh_profiler_start(const char* name, hh_profiler_t* parent);
+void hh_profiler_start(hh_profiler_t* profiler, const char* name, hh_profiler_t* parent);
 // child profilers report their results to the parent, 
 // the root profile print their statistics
 void
 hh_profiler_end(hh_profiler_t* profiler);
+
+// macros to avoid tracking hh_profiler_t variables
+// just supply a name for the benchmark and optionally the name of the parent, i.e.
+// HH_PROFILE(main);
+// ...
+//    HH_PROFILE(my_function, main);
+//    ...
+//    HH_PROFILE_END(my_function);
+// ...
+// HH_PROFILE_END(main);
+#define HH_PROFILE(...) HH__PROFILE(__VA_ARGS__)
+#define HH_PROFILE_END(name) hh_profiler_end(&_profiler_##name)
 
 // hh_span_t is a string-view interface
 // intended for parsing
@@ -448,12 +459,16 @@ hh_span_t
 hh_span(char* contents);
 
 // grabs the next token from the span
-#define hh_span_next(span, ...) hh_span_next_opt((span), (hh_span_opt) { __VA_ARGS__ })
+#define hh_span_next(span, ...) HH__span_next_opt((span), (hh_span_opt) { __VA_ARGS__ })
 
+// for use in hh_hmap's .key_f.hash and .key_f.comp
 size_t 
 hh_hash_span(const void* ptr, size_t sz);
 int
 hh_comp_span(const void* fst, const void* snd, size_t sz);
+
+// appends a span to an hh_path
+#define hh_path_join_span(path, elem) ((path) = HH__path_join_span((path), (elem)))
 
 //
 //
@@ -593,7 +608,7 @@ HH__path_join(char* path, ...);
 #define HH_EDITION 202311L
 #endif // 202311L
 #endif // __STDC_VERSION__
-#endif // __STD__
+#endif // __STDC__
 
 struct HH__timer_t {
 #ifdef _WIN32
@@ -687,18 +702,36 @@ hh_strnlen(const char *s, size_t maxlen);
 struct HH__profiler_t {
     const char* name;
     hh_timer_t timer;
-    _Bool root;
+    hh_profiler_t* root;
     union {
         struct {
             struct { const char* key;  hh_bench_t val; }* inner;
             char* keys;
+            const hh_profiler_t* latest;
         } stats;
         hh_profiler_t* parent;
     } inner;
 };
 
+#define HH__PROFILE1(name) NULL
+#define HH__PROFILE2(name, parent) & _profiler_##parent
+#define HH__PROFILE(...) \
+    hh_profiler_t HH__PROFILE_VARIABLE(__VA_ARGS__); \
+    hh_profiler_start(&HH__PROFILE_VARIABLE(__VA_ARGS__), HH_STRINGIFY(HH__PROFILE_NAME(__VA_ARGS__)), HH_CONCATENATE(HH__PROFILE, HH_ARGS_LENGTH(__VA_ARGS__))(__VA_ARGS__))
+
+#define HH__PROFILE_NAME1(name) name
+#define HH__PROFILE_NAME2(name, ...) name
+#define HH__PROFILE_NAME(...) HH_CONCATENATE(HH__PROFILE_NAME, HH_ARGS_LENGTH(__VA_ARGS__))(__VA_ARGS__)
+
+#define HH__PROFILE_VARIABLE1(name) _profiler_##name
+#define HH__PROFILE_VARIABLE2(name, ...) _profiler_##name
+#define HH__PROFILE_VARIABLE(...) HH_CONCATENATE(HH__PROFILE_VARIABLE, HH_ARGS_LENGTH(__VA_ARGS__))(__VA_ARGS__)
+
 hh_span_t
-hh_span_next_opt(hh_span_t* s, hh_span_opt opt);
+HH__span_next_opt(hh_span_t* span, hh_span_opt opt);
+
+char*
+HH__path_join_span(char* path, hh_span_t span);
 
 #ifdef HH_IMPLEMENTATION
 
@@ -1198,14 +1231,14 @@ hh_hmapfree(const void* map) {
         char* key;
         for(size_t i = 0; i < map_hdr->len; ++i) {
             key = (char*) map + i * map_hdr->prop.sz_entry + map_hdr->prop.off_key;
-            (map_hdr->opt.key_f.free)(*((void**) key));
+            (map_hdr->opt.key_f.free)(key);
         }
     }
     if(map_hdr->opt.val_f.free != NULL) {
         char* val;
         for(size_t i = 0; i < map_hdr->len; ++i) {
             val = (char*) map + i * map_hdr->prop.sz_entry + map_hdr->prop.off_val;
-            (map_hdr->opt.val_f.free)(*((void**) val));
+            (map_hdr->opt.val_f.free)(val);
         }
     }
     for(size_t i = 0; i < map_hdr->opt.bucket_count; ++i) {
@@ -1470,33 +1503,38 @@ hh_bench_update(hh_bench_t* bench, double entry) {
     bench->mean += (entry - bench->mean) / (double) bench->count; 
 }
 
-hh_profiler_t
-hh_profiler_start(const char* name, hh_profiler_t* parent) {
+void 
+hh_profiler_start(hh_profiler_t* profiler, const char* name, hh_profiler_t* parent) {
     HH_ASSERT_INVARIANT(name != NULL);
     HH_ASSERT_INVARIANT(strlen(name) > 0);
-    hh_profiler_t profiler = { 
-        .name = name, 
-        .timer = hh_timer_start(), 
-        .root = (parent == NULL) 
-    };
-    if(profiler.root) {
-        hh_hmapconfig(profiler.inner.stats.inner, .key_f = {
+    profiler->name = name;
+    profiler->timer = hh_timer_start(),
+    profiler->root = (parent == NULL) ? NULL : ((parent->root == NULL) ? parent : parent->root);
+    if(profiler->root == NULL) {
+        hh_hmapconfig(profiler->inner.stats.inner, .key_f = {
                 .hash = hh_hash_cstr,
                 .comp = hh_comp_cstr
             });
-    } else profiler.inner.parent = parent;
-    return profiler;
+        profiler->inner.stats.keys = NULL;
+        profiler->inner.stats.latest = profiler;
+    } else {
+        HH_ASSERT(profiler->root->inner.stats.latest == parent, 
+            "Profiler '%s' is improperly nested or an hh_profiler_end call was forgotten", name);
+        profiler->root->inner.stats.latest = profiler;
+        profiler->inner.parent = parent;
+    }
 }
 
 static inline void
-HH__profiler_full_name(hh_profiler_t* root, const hh_profiler_t* profiler) {
-    HH_ASSERT_INVARIANT(root != NULL);
+HH__profiler_full_name(const hh_profiler_t* profiler) {
     HH_ASSERT_INVARIANT(profiler != NULL);
-    if(!profiler->root) {
-        HH__profiler_full_name(root, profiler->inner.parent);
-        hh_darrputstr(root->inner.stats.keys, "/");
+    if(profiler->root != NULL) {
+        HH__profiler_full_name(profiler->inner.parent);
+        hh_darrputstr(profiler->root->inner.stats.keys, "/");
+        hh_darrputstr(profiler->root->inner.stats.keys, profiler->name);
+    } else {
+        hh_darrputstr(profiler->inner.stats.keys, profiler->name);
     }
-    hh_darrputstr(root->inner.stats.keys, profiler->name);
 }
 
 void
@@ -1504,7 +1542,7 @@ hh_profiler_end(hh_profiler_t* profiler) {
     HH_ASSERT_INVARIANT(profiler != NULL);
     HH_ASSERT_INVARIANT(profiler->name != NULL);
     double elapsed = hh_timer_duration(profiler->timer);
-    if(profiler->root) {
+    if(profiler->root == NULL) {
         // dump results
         HH_DBG_BLOCK {
             HH_LOG_APPEND("Results from \"%s\" profiler...\n", profiler->name);
@@ -1522,14 +1560,13 @@ hh_profiler_end(hh_profiler_t* profiler) {
         hh_darrfree(profiler->inner.stats.keys);
     } else {
         // find the root profiler
-        hh_profiler_t* root = profiler->inner.parent;
-        while(!root->root) root = root->inner.parent;
+        hh_profiler_t* root = profiler->root;
         // construct the current profiler's full name
         size_t offset = hh_darrlen(root->inner.stats.keys);
         // NOTE: this is done under the assumption that hh_darrputstr 
         // only strips one instance of '\0' at the end of the string
         hh_darrput(root->inner.stats.keys, '\0');
-        HH__profiler_full_name(root, profiler);
+        HH__profiler_full_name(profiler);
         const char* key = root->inner.stats.keys + offset;
         // check if it's the first iteration
         size_t idx = hh_hmapget(root->inner.stats.inner, &key);
@@ -1543,6 +1580,8 @@ hh_profiler_end(hh_profiler_t* profiler) {
             // compute incremental mean
             hh_bench_update(&root->inner.stats.inner[idx].val, elapsed);
         }
+        // maintain `latest`
+        root->inner.stats.latest = profiler->inner.parent;
     }
 }
 
@@ -1569,7 +1608,7 @@ HH__span_matches(hh_span_t* span, hh_span_opt opt) {
 }
 
 hh_span_t
-hh_span_next_opt(hh_span_t* span, hh_span_opt opt) {
+HH__span_next_opt(hh_span_t* span, hh_span_opt opt) {
     const char* whitespace = opt.eol ? " \t\r" : " \t\r\n";
     hh_span_t temp = { .end = span->end };
     if(span->ptr == span->end) return temp;
@@ -1626,6 +1665,22 @@ hh_comp_span(const void* fst, const void* snd, size_t sz) {
     int ret = memcmp(span_fst->ptr, span_snd->ptr, HH_MIN(len_fst, len_snd));
     if(ret != 0) return ret;
     return (len_fst > len_snd) - (len_fst < len_snd);
+}
+
+char*
+HH__path_join_span(char* path, hh_span_t span) {
+    if(hh_span_len(span) == 0) return path;
+    if(span.ptr[0] == '/' || span.ptr[0] == '\\') ++(span.ptr);
+    if(hh_span_len(span) == 0) return path;
+    (void) hh_darrpop(path);
+    if(hh_darrlast(path) != '/') hh_darrput(path, '/');
+    while(span.ptr != span.end) {
+        hh_darrput(path, span.ptr[0]);
+        span.ptr++;
+    }
+    if(hh_darrlen(path) > 2 && hh_darrlast(path) == '/') (void) hh_darrpop(path);
+    hh_darrput(path, '\0');
+    return path;
 }
 #endif // HH_IMPLEMENTATION
 #endif // HH__
@@ -1721,6 +1776,8 @@ hh_comp_span(const void* fst, const void* snd, size_t sz) {
 #define profiler_t hh_profiler_t
 #define profiler_start hh_profiler_start
 #define profiler_end hh_profiler_end
+#define PROFILE HH_PROFILE
+#define PROFILE_END HH_PROFILE_END
 
 #define span_t hh_span_t
 #define span_opt hh_span_opt
@@ -1731,5 +1788,6 @@ hh_comp_span(const void* fst, const void* snd, size_t sz) {
 #define span_next hh_span_next
 #define hash_span hh_hash_span
 #define comp_span hh_comp_span
+#define path_join_span hh_path_join_span
 #endif // HH_APPLY_PREFIXES
 #endif // not HH__APPLY_PREFIXES
